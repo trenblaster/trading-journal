@@ -3,7 +3,7 @@
 // Keep CACHE_VERSION in sync with APP_VERSION in index.html: bump both together whenever you
 // re-upload a changed index.html, so the browser knows to fetch the new file instead of serving
 // a stale cached copy forever.
-var CACHE_VERSION = 'tradalytics-v23.2.0';
+var CACHE_VERSION = 'tradalytics-v23.14.0';
 var APP_SHELL = ['./', './index.html'];
 
 self.addEventListener('install', function (event) {

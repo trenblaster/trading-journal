@@ -3,7 +3,7 @@
 // Keep CACHE_VERSION in sync with APP_VERSION in index.html: bump both together whenever you
 // re-upload a changed index.html, so the browser knows to fetch the new file instead of serving
 // a stale cached copy forever.
-var CACHE_VERSION = 'tradalytics-v23.14.0';
+var CACHE_VERSION = 'tradalytics-v23.30.0';
 var APP_SHELL = ['./', './index.html'];
 
 self.addEventListener('install', function (event) {
@@ -40,9 +40,10 @@ self.addEventListener('fetch', function (event) {
   var req = event.request;
   if (req.method !== 'GET') return;
   var url = new URL(req.url);
-  // Only manage same-origin requests (the app shell itself). Cross-origin calls — Google Fonts,
-  // the PapaParse CDN script, any future Anthropic API calls — go straight to the network so this
-  // never interferes with CORS or serves a stale third-party script.
+  // Only manage same-origin requests (the app shell itself). Cross-origin calls — the PapaParse
+  // CDN script, any future Anthropic API calls — go straight to the network so this never
+  // interferes with CORS or serves a stale third-party script. (Since v23.26 the typeface is
+  // inside index.html, so there is no font request to manage at all.)
   if (url.origin !== self.location.origin) return;
 
   event.respondWith(

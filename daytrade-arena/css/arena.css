@@ -646,7 +646,8 @@ body.flash-bad::after { content: ''; position: fixed; inset: 0; z-index: 85; poi
   #game[data-mtab="chat"] .chat-panel { flex: 1; height: auto; }
   .quick-bar { display: flex; position: absolute; left: 8px; right: 78px; bottom: 62px; z-index: 6; gap: 6px; align-items: center; }
   .quick-bar .btn { flex: 1; padding: 10px 4px; }
-  .quick-qty { font-weight: 800; font-size: 13px; color: var(--text-2); min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
+  .quick-bar .btn.ghost { background: var(--panel-2); border-color: var(--axis); }
+  .quick-qty { font-weight: 800; font-size: 13px; color: var(--text-2); min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; background: var(--panel-2); border: 1px solid var(--axis); border-radius: 8px; padding: 8px 4px; }
   .mobile-tabs { display: flex; flex: none; border-top: 1px solid var(--line); background: var(--panel); padding-bottom: env(safe-area-inset-bottom); }
   .mobile-tabs button { flex: 1; border: none; background: transparent; color: var(--text-3); padding: 7px 0 6px; font: 18px/1 var(--f-emoji); display: flex; flex-direction: column; align-items: center; gap: 3px; }
   .mobile-tabs button span { font: 700 11px var(--f-ui); }

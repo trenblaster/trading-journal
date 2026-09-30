@@ -745,7 +745,7 @@
         const tw = ctx.measureText(text).width + 12;
         const x = L.plotW - tw - 8;
         // Top tag: level with the legend when there's room beside it, else under it (calendar flags sit lower).
-        let y = top ? 12 : L.mainH - 24;
+        let y = top ? 12 : L.mainH - 24 - (this.bottomInset || 0);
         const lw1 = this.legendW1 === undefined ? 520 : this.legendW1, lw2 = this.legendW2 === undefined ? 330 : this.legendW2;
         if (top && lw1 > x - 6) y = lw2 > x - 6 ? 46 : 29;
         roundRect(ctx, x, y - 8, tw, 16, 8);

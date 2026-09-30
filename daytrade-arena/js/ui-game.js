@@ -1082,6 +1082,10 @@
       $('#tapeSpeed').title = 'Trade prints per second';
     }
     $('#btnLive').hidden = chart.right === null && !chart.yMan;
+    // On a phone the quick-trade bar floats over the bottom of the chart: keep the bottom level tag above it.
+    const qb = $('#quickBar');
+    const inset = qb && qb.offsetParent ? qb.offsetHeight + 10 : 0;
+    if (chart.bottomInset !== inset) { chart.bottomInset = inset; chart.dirty = true; }
     refreshTicket();
   }
 

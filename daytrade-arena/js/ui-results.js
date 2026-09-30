@@ -351,20 +351,40 @@
     downloadText('day-trade-arena-fills-' + day + '.csv', lines.join('\n'));
     ui.toast('Fills exported. In Tradalytics, choose Import and select this file.', 'good');
   }
+  // Candles for the whole timeline: yesterday's session and the overnight or premarket (1-minute history),
+  // then the match. Timestamps use real dates: today for the match, the day before for yesterday's bars.
   function exportCandles(sym, tf) {
     const g = C().game;
     const s = g && g.syms[sym];
     if (!s) return;
-    const bars = DTA.ind.aggregate(s.bars, s.tick, g.start, tf, 0);
+    const tick = s.tick;
+    const out = [];
+    let cur = null;
+    for (const b of s.histBars || []) {
+      const t0 = Math.floor(b[0] / tf) * tf;
+      if (!cur || cur.t !== t0) { cur = { t: t0, o: b[1] * tick, h: b[2] * tick, l: b[3] * tick, c: b[4] * tick, v: b[5] }; out.push(cur); }
+      else { cur.h = Math.max(cur.h, b[2] * tick); cur.l = Math.min(cur.l, b[3] * tick); cur.c = b[4] * tick; cur.v += b[5]; }
+    }
+    for (const b of DTA.ind.aggregate(s.bars, tick, g.start, tf, 0)) {
+      if (!b.v) continue;
+      const last = out[out.length - 1];
+      if (last && last.t === Math.floor(b.t / tf) * tf) { last.h = Math.max(last.h, b.h); last.l = Math.min(last.l, b.l); last.c = b.c; last.v += b.v; }
+      else out.push({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v });
+    }
     const day = today();
-    const dp = DTA.decimalsForTick(s.tick);
+    const dp = DTA.decimalsForTick(tick);
     const lines = ['timestamp,open,high,low,close,volume'];
-    for (const b of bars) {
+    for (const b of out) {
       const t = Math.floor(b.t);
-      lines.push(day + ' ' + pad2(Math.floor(t / 3600)) + ':' + pad2(Math.floor((t % 3600) / 60)) + ',' + b.o.toFixed(dp) + ',' + b.h.toFixed(dp) + ',' + b.l.toFixed(dp) + ',' + b.c.toFixed(dp) + ',' + Math.round(b.v));
+      const tod = ((t % 86400) + 86400) % 86400;
+      lines.push(dateOffset(Math.floor(t / 86400)) + ' ' + pad2(Math.floor(tod / 3600)) + ':' + pad2(Math.floor((tod % 3600) / 60)) + ',' + b.o.toFixed(dp) + ',' + b.h.toFixed(dp) + ',' + b.l.toFixed(dp) + ',' + b.c.toFixed(dp) + ',' + Math.round(b.v));
     }
     downloadText('day-trade-arena-' + sym + '-' + (tf / 60) + 'm-' + day + '.csv', lines.join('\n'));
-    ui.toast(sym + ' candles exported for the Tradalytics backtester', 'good');
+    ui.toast(sym + ' candles exported for the Tradalytics backtester (with yesterday and the ' + (s.kind === 'future' ? 'overnight' : 'premarket') + ')', 'good');
+  }
+  function dateOffset(days) {
+    const d = new Date(Date.now() + days * 86400000);
+    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
   }
   function exportView(r) {
     const g = C().game;
@@ -376,10 +396,10 @@
     ]));
     if (r.singleMarket && g) {
       const sel = el('select.select.small', r.syms.map((s) => el('option', { value: s }, s)));
-      const tf = el('select.select.small', [[60, '1-minute'], [300, '5-minute']].map(([v, l]) => el('option', { value: v }, l)));
+      const tf = el('select.select.small', [[60, '1-minute'], [300, '5-minute'], [900, '15-minute']].map(([v, l]) => el('option', { value: v }, l)));
       grid.appendChild(el('div.export-card', [
         el('h4', '🧪 Candles (Tradalytics backtester)'),
-        el('p', 'OHLCV bars (timestamp, open, high, low, close, volume) from this session. Load them as a dataset in the backtester and test a strategy on the day you just played.'),
+        el('p', 'OHLCV bars (timestamp, open, high, low, close, volume): yesterday\'s session, the overnight or premarket, and the match. Load them as a dataset in the backtester and test a strategy on the day you just played.'),
         el('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [sel, tf, el('button.btn', { type: 'button', onclick: () => exportCandles(sel.value, +tf.value) }, 'Download candles CSV')])
       ]));
     }

@@ -208,14 +208,27 @@
     const g = info.gap;
     const tn = info.newsAt;
     const pmhAt = r.range(Math.max(tn + 900, H(7, 45)), H(9, 15));
-    const pm = new Plan(tn, [
-      { t: tn, a: 0, k: hl(1) },
-      { t: tn + 90, a: g * r.range(0.45, 0.7), k: LN2 / 25 },
-      { t: tn + 900, a: g * r.range(0.72, 0.95), k: hl(3) },
-      { t: pmhAt, a: g * r.range(1.08, 1.25), k: hl(6) },
-      { t: H(9, 15), a: g * r.range(0.9, 1.02), k: hl(6) },
-      { t: rth0, a: g * r.range(0.95, 1.05), k: hl(4) }
-    ], 'premarket', { newsAt: tn });
+    // Premarket: a spike on the headline, then pushes and pullbacks up to the premarket high, a dip, and
+    // the stock settles near its gap into the bell.
+    const pmh = g * r.range(1.08, 1.25);
+    const pw = [{ t: tn, a: 0, k: hl(1) }];
+    let t = tn + r.range(60, 150), hi = g * r.range(0.45, 0.7);
+    pw.push({ t, a: hi, k: LN2 / 25 });
+    for (;;) {
+      const tp = t + r.range(3, 9) * 60, tu = tp + r.range(4, 12) * 60;
+      if (tu > pmhAt - 240) break;
+      pw.push({ t: tp, a: hi - g * r.range(0.08, 0.22), k: hl(r.range(0.8, 2)) });
+      hi = Math.min(pmh - g * 0.03, hi + (pmh - hi) * r.range(0.3, 0.6) + g * r.range(0, 0.05));
+      pw.push({ t: tu, a: hi, k: hl(r.range(0.8, 2)) });
+      t = tu;
+    }
+    pw.push({ t: pmhAt, a: pmh, k: hl(1.5) });
+    const fadeAt = pmhAt + r.range(5, 15) * 60;
+    if (fadeAt < H(9, 12)) pw.push({ t: fadeAt, a: pmh - g * r.range(0.12, 0.25), k: hl(2) });
+    pw.push({ t: H(9, 15), a: g * r.range(0.9, 1.02), k: hl(4) });
+    pw.push({ t: rth0, a: g * r.range(0.95, 1.05), k: hl(4) });
+    pw.sort((x, y) => x.t - y.t);
+    const pm = new Plan(tn, pw, 'premarket', { newsAt: tn });
     const R = clamp(r.lognormal(0.4, 0.35), 0.22, 0.75) * (info.lowFloat ? 1.25 : 1);
     const b = { wps: [{ t: rth0, a: 0, k: hl(1) }] };
     const go = (min, a, hlMin) => { b.wps.push({ t: rth0 + min * 60, a: a * R, k: hl(hlMin) }); };
@@ -287,6 +300,7 @@
       if (this.effects.length) {
         this.effects = this.effects.filter((e) => e.until > t);
         for (const e of this.effects) {
+          if (e.from !== undefined && t < e.from) continue;
           const left = clamp((e.until - t) / e.dur, 0, 1);
           if (e.kind === 'drift') { this.lf += e.rate * dt; this.aOff += e.rate * dt; }
           else if (e.kind === 'vol') volMult *= 1 + (e.mult - 1) * left;
@@ -459,9 +473,11 @@
 
   // ---------- 1-minute bars from path samples ----------
   class BarBuilder {
-    constructor(tick, v1, sd, prof, rng, noWicks) {
+    // spread (ticks): history prints at the bid or the ask like the live tape, so candles keep the same texture.
+    constructor(tick, v1, sd, prof, rng, noWicks, spread) {
       this.tick = tick; this.v1 = v1; this.sd = sd; this.prof = prof; this.rng = rng; this.noWicks = !!noWicks;
-      this.bars = []; this.cur = null; this.lastC = null;
+      this.hs = (spread || 0) / 2;
+      this.bars = []; this.cur = null; this.lastC = null; this.lastCi = null;
     }
     sample(t, logp, volMult) {
       const m = Math.floor(t / 60) * 60;
@@ -486,10 +502,11 @@
       const s1 = this.sd * Math.sqrt(60 / DAY) * Math.sqrt(act);
       const r = this.rng;
       let h = c.h, l = c.l;
-      if (!this.noWicks) { h *= Math.exp(Math.abs(r.normal()) * s1 * 0.35); l *= Math.exp(-Math.abs(r.normal()) * s1 * 0.35); }
-      const tk = this.tick;
-      const oi = Math.round(c.o / tk), ci = Math.round(c.c / tk);
-      const hi = Math.max(oi, ci, Math.round(h / tk)), li = Math.min(oi, ci, Math.round(l / tk));
+      if (!this.noWicks) { h *= Math.exp(Math.abs(r.normal()) * s1 * 0.22); l *= Math.exp(-Math.abs(r.normal()) * s1 * 0.22); }
+      const tk = this.tick, hs = this.hs;
+      const oi = this.lastCi !== null ? this.lastCi : Math.round(c.o / tk);
+      const ci = Math.round(c.c / tk + (hs ? (r.float() < 0.5 ? hs : -hs) : 0));
+      const hi = Math.max(oi, ci, Math.round(h / tk + hs)), li = Math.max(1, Math.min(oi, ci, Math.round(l / tk - hs)));
       const ret = Math.log(c.c / c.o);
       const z = ret / Math.max(1e-9, s1);
       let v = this.v1 * act * (0.6 + 0.35 * Math.min(4, Math.abs(z))) * r.lognormal(1, 0.3) * c.vm;
@@ -498,7 +515,7 @@
       const bf = clamp(0.5 + 0.36 * Math.tanh(z * 0.8) + r.normal() * 0.05, 0.05, 0.95);
       const bar = [c.t, oi, hi, li, ci, v, Math.round(v * bf)];
       this.bars.push(bar);
-      this.lastC = c.c;
+      this.lastC = c.c; this.lastCi = ci;
       return bar;
     }
   }

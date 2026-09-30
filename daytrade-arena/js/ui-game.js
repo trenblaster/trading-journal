@@ -281,6 +281,21 @@
     $('#wlNote').textContent = g.symList.length + (g.symList.length === 1 ? ' symbol' : ' symbols');
     updateWatchlist();
   }
+  function watchPrice(row, s, th) {
+    const px = s.last * s.tick, prev = s.prev * s.tick;
+    const ch = px / prev - 1;
+    const pxEl = row.querySelector('.wl-px'), chg = row.querySelector('.wl-chg');
+    const txt = fmtPrice(px, s.tick);
+    if (pxEl.textContent === txt) return;
+    pxEl.textContent = txt;
+    chg.textContent = fmtPct(ch);
+    // Heat: tint strength grows with the move (full at ±6%); the signed number carries the meaning.
+    const a = Math.min(0.55, Math.abs(ch) / 0.06 * 0.55);
+    if (typeof th === 'function') th = th();
+    chg.style.background = DTA.alpha(ch >= 0 ? th.up : th.down, a);
+    chg.style.color = a > 0.3 ? '#fff' : ch >= 0 ? th.up : th.down;
+  }
+
   function updateWatchlist() {
     const g = G();
     if (!g) return;
@@ -289,15 +304,7 @@
       const s = g.syms[row.dataset.sym];
       if (!s) continue;
       row.classList.toggle('active', row.dataset.sym === S.sym);
-      const px = s.last * s.tick, prev = s.prev * s.tick;
-      const ch = px / prev - 1;
-      row.querySelector('.wl-px').textContent = fmtPrice(px, s.tick);
-      const chg = row.querySelector('.wl-chg');
-      chg.textContent = fmtPct(ch);
-      // Heat: tint strength grows with the move (full at ±6%); the signed number carries the meaning.
-      const a = Math.min(0.55, Math.abs(ch) / 0.06 * 0.55);
-      chg.style.background = DTA.alpha(ch >= 0 ? th.up : th.down, a);
-      chg.style.color = a > 0.3 ? '#fff' : ch >= 0 ? th.up : th.down;
+      watchPrice(row, s, th);
       const flags = row.querySelector('.wl-flags');
       flags.innerHTML = '';
       if (s.halted) flags.appendChild(el('span.wl-badge.halt', 'HALT'));
@@ -883,8 +890,8 @@
     }
     const next = (g.cal || []).filter((e) => !e.done && e.t > g.t).sort((a, b) => a.t - b.t)[0];
     if (next) parts.push(el('span.ci.cal' + (next.imp >= 3 ? '.hot' : ''), { title: next.long + (next.fc ? ' · expected ' + next.fc : '') }, '⏱ ' + next.name + ' ' + fmtClock(next.t, false) + ' · in ' + fmtDuration(((next.t - g.t) / g.speed) * 1000)));
+    if (s.ssr) parts.push(el('span.ci.ssr', { title: 'Short sale restriction: down 10% on the day, shorts only on an uptick' }, 'SSR'));
     if (s.runner) parts.push(el('span.ci.run', { title: s.runner.catalyst }, '📰 ' + s.runner.catalyst));
-    if (s.ssr) parts.push(el('span.ci.ssr', 'SSR'));
     const key = parts.map((p) => p.textContent).join('|');
     if (box.dataset.key === key) return;
     box.dataset.key = key;
@@ -1057,7 +1064,30 @@
     void s;
     const book = s && s.book;
     $('#spreadNote').textContent = book && book.a.length && book.b.length ? 'spread ' + fmtPrice((book.a[0][0] - book.b[0][0]) * s.tick, s.tick) : s && s.halted ? 'halted' : '';
+    // Tape speed.
+    if (s) {
+      const now = performance.now();
+      S.tapeCount.push([now, s.tape.length]);
+      while (S.tapeCount.length > 2 && now - S.tapeCount[0][0] > 3000) S.tapeCount.shift();
+      const f = S.tapeCount[0], l = S.tapeCount[S.tapeCount.length - 1];
+      const rate = l[0] > f[0] ? ((l[1] - f[1]) / (l[0] - f[0])) * 1000 : 0;
+      $('#tapeSpeed').textContent = rate > 0 ? Math.round(rate) + ' prints/s' : '';
+    }
+    $('#btnLive').hidden = chart.right === null && !chart.yMan;
+    refreshTicket();
+  }
+
+  // The symbol header and the ticket's bid/ask refresh with the ladder, so every price on screen agrees.
+  function updateQuotes() {
+    const g = G();
+    if (!g) return;
+    const s = g.syms[S.sym];
+    let th = null;
+    const theme = () => th || (th = DTA.chartTheme());
+    for (const row of $$('#watchlist .wl-row')) { const w = g.syms[row.dataset.sym]; if (w) watchPrice(row, w, theme); }
     const title = $('#symTitle');
+    const q = $('#tkQuote');
+    if (s && q && !g.predict) q.textContent = 'Bid ' + (s.bid !== null ? fmtPrice(s.bid * s.tick, s.tick) : '—') + ' · Ask ' + (s.ask !== null ? fmtPrice(s.ask * s.tick, s.tick) : '—') + (s.halted ? ' · HALTED' : '');
     if (s) {
       const px = s.last * s.tick, ch = px / (s.prev * s.tick) - 1;
       const facts = s.kind === 'future'
@@ -1071,17 +1101,6 @@
         title.append(el('b', s.sym), el('span.' + (ch >= 0 ? 'pos' : 'neg'), fmtPrice(px, s.tick) + ' ' + fmtPct(ch)), el('span.nm', s.name), el('span.facts', facts));
       }
     }
-    // Tape speed.
-    if (s) {
-      const now = performance.now();
-      S.tapeCount.push([now, s.tape.length]);
-      while (S.tapeCount.length > 2 && now - S.tapeCount[0][0] > 3000) S.tapeCount.shift();
-      const f = S.tapeCount[0], l = S.tapeCount[S.tapeCount.length - 1];
-      const rate = l[0] > f[0] ? ((l[1] - f[1]) / (l[0] - f[0])) * 1000 : 0;
-      $('#tapeSpeed').textContent = rate > 0 ? Math.round(rate) + ' prints/s' : '';
-    }
-    $('#btnLive').hidden = chart.right === null && !chart.yMan;
-    refreshTicket();
   }
 
   // ---------- phases & overlays ----------
@@ -1207,6 +1226,7 @@
     else if (chart.dirty) { chart.dirty = false; safe('chart', () => chart.render()); }
     if (t - S.tWidgets > 50) {
       S.tWidgets = t;
+      safe('quotes', updateQuotes);
       if (!G().predict) {
         safe('ladder', () => ladder.render());
         if (S.tapeTab === 'tape') safe('tape', () => tape.render()); else safe('depth', () => depth.render());

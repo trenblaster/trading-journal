@@ -740,7 +740,10 @@
         if (!o) continue;
         const text = (top ? '▲ ' : '▼ ') + o.named.map((m) => K[m.k].label).join(' · ') + ' ' + fmtPrice(o.p, tick) + '  (' + DTA.fmtPct(o.p / (s.last * tick) - 1, 2) + ')';
         const tw = ctx.measureText(text).width + 12;
-        const x = L.plotW - tw - 8, y = top ? 38 : L.mainH - 24;
+        const x = L.plotW - tw - 8;
+        // Top tag: level with the legend when there's room beside it, else under it (calendar flags sit lower).
+        let y = top ? 12 : L.mainH - 24;
+        if (top && (this.legendW1 || 0) > x - 6) y = (this.legendW2 || 0) > x - 6 ? 46 : 29;
         roundRect(ctx, x, y - 8, tw, 16, 8);
         ctx.fillStyle = alpha(th.panel, 0.9); ctx.fill();
         ctx.strokeStyle = alpha(levelColor(th, K[o.named[0].k].grp), 0.7); ctx.lineWidth = 1; ctx.stroke();
@@ -948,7 +951,8 @@
         else { g.list.push(e); g.imp = Math.max(g.imp, e.imp); g.name += ' · ' + e.name; g.long += ' · ' + e.long; g.done = g.done && e.done; }
       }
       const cal = [...byT.values()].sort((a, b) => a.t - b.t);
-      const Y0 = 40;
+      // Flags sit just under the legend so they never hide behind it.
+      const Y0 = (this.legendW2 ? 37 : 20) + 17;
       let lastRight = -1e9, row = 0;
       for (const e of cal) {
         const x = this.xOfT(e.t, L, n) - this.barW / 2;

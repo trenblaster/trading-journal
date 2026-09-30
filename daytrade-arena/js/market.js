@@ -36,7 +36,7 @@
         const p0 = f.p * Math.exp(rng.normal() * 0.03);
         this.meta = { tick: f.tick, kind: 'future', cls: f.cls, rth: f.rth, round: f.round, conf: f.conf, orMin: f.orMin };
         this.c = Math.log(Math.round(p0 / f.tick) * f.tick);
-        this.bb = new P.BarBuilder(f.tick, 1000, spec.sd, spec.prof, rng.fork('bars'), false);
+        this.bb = new P.BarBuilder(f.tick, 1000, spec.sd, spec.prof, rng.fork('bars'), false, f.spread || 1);
         this.prevDev = new LV.Developing(this.meta, -DAY_SEC);
         this.dev = new LV.Developing(this.meta, 0);
         this.prior = null; this.liveDev = null;
@@ -115,7 +115,7 @@
         });
       }
       this.react = this.lead ? this.lead.reactor : this.reactor;
-      this.hb = new P.BarBuilder(this.tick, this.volPerMin(), def.vol || 0.01, this.prof, rng.fork('bars'), false);
+      this.hb = new P.BarBuilder(this.tick, this.volPerMin(), def.vol || 0.01, this.prof, rng.fork('bars'), false, def.spread || 1);
       this.hist = [];
       this.prevDev = new LV.Developing(this.meta, -DAY_SEC);
       this.dev = new LV.Developing(this.meta, 0);
@@ -324,7 +324,10 @@
       let remaining = qty;
       const fills = [];
       let idx = this.bestAgainst(side, t, pid);
-      let guard = 0;
+      // Background prints sweep at most a few levels: past that, hidden and refreshed size absorbs the rest,
+      // so random tape doesn't paint wicks the fair price never went to (it matters most for coarse ticks).
+      const maxLv = noise ? (typeof noise === 'number' ? noise : 2) : Infinity;
+      let guard = 0, lv = 0;
       while (remaining > 0 && idx !== null && guard++ < 160) {
         if (limitIdx !== null && limitIdx !== undefined && (side > 0 ? idx > limitIdx : idx < limitIdx)) break;
         const synth = this.levelSize(book, idx, t);
@@ -347,6 +350,7 @@
           const takeS = Math.min(remaining, synth - usedSynth);
           usedSynth += takeS; remaining -= takeS; levelQty += takeS;
         }
+        if (++lv >= maxLv && remaining > 0 && levelQty > 0) { levelQty += remaining; remaining = 0; }
         if (usedSynth > 0) {
           fills.push({ idx, qty: usedSynth, cp: null });
           for (const o of this.restingOn(-side, idx, null)) o.queueAhead = Math.max(0, o.queueAhead - usedSynth);
@@ -517,13 +521,17 @@
       const n = r.poisson(rate * dt);
       const sizeMult = 1 / m.flowScale;
       const pBuy = clamp(0.5 + 0.12 * mom + 0.3 * this.momEma + this.flowBias + rflow, 0.06, 0.94);
+      // How far a print may sweep scales with a typical 1-minute move in ticks.
+      const move1m = (sigma * Math.sqrt(60 / Math.max(0.01, dt)) * this.fair) / this.tick;
+      const sweep = clamp(Math.round(move1m * 0.12 * boost), 1, 6);
       for (let i = 0; i < n; i++) {
         const side = r.chance(pBuy) ? 1 : -1;
         let size = r.lognormal(d.printSize * sizeMult, 0.85);
-        if (r.chance(this.fut ? 0.004 : 0.012)) size *= r.range(4, 12);
+        const block = r.chance(this.fut ? 0.004 : 0.012);
+        if (block) size *= r.range(4, 12);
         size = this.lot > 1 && size >= 100 ? Math.round(size / 100) * 100 : Math.max(1, Math.round(size));
         const pt = t - dt + ((i + r.float()) / n) * dt;
-        this.walk(side, size, null, null, true, pt);
+        this.walk(side, size, null, null, block ? sweep * 2 + (sweep > 1 ? 1 : 0) : sweep, pt);
       }
       this.barAt(t);
       m.afterSubstep(this, t);
@@ -718,6 +726,10 @@
         // Yesterday the runner was an unknown small cap: quiet.
         y.schedule(P.flatPlan(a - DAY_SEC, b - DAY_SEC, 60, 'quiet'));
         y.effects.push({ kind: 'volc', mult: 0.3, until: def.runnerInfo.newsAt, dur: 1 });
+        // Once the news hits, a thin premarket gets wild: the bigger the gap, the wider the candles.
+        const ri = def.runnerInfo;
+        y.effects.push({ kind: 'volc', mult: clamp(1.7 + 3 * ri.gap, 2, 4.5), from: ri.newsAt, until: a, dur: 1 });
+        y.effects.push({ kind: 'vol', mult: 2.4, from: ri.newsAt, until: ri.newsAt + 1500, dur: 1500 });
         const rp = P.runnerPlans(r, def.runnerInfo, a, b);
         y.schedule(P.flatPlan(LV.PM_START, def.runnerInfo.newsAt, 60, 'premarket'));
         y.schedule(rp.pm);

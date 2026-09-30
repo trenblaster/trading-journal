@@ -127,12 +127,18 @@
     return s + groupInt(a);
   }
   function fmtInt(n) { return (n < 0 ? MINUS : '') + groupInt(n); }
-  function decimalsForTick(tick) { return tick >= 1 ? 0 : tick >= 0.1 ? 1 : tick >= 0.01 ? 2 : tick >= 0.001 ? 3 : 4; }
+  // Decimals a tick size needs: 0.25 → 2, 0.1 → 1, 0.01 → 2, 0.0001 → 4.
+  function decimalsForTick(tick) {
+    let d = 0;
+    while (d < 6 && Math.abs(Math.round(tick * 10 ** d) - tick * 10 ** d) > 1e-7) d++;
+    return d;
+  }
   function fmtPrice(p, tick = 0.01) { return isFinite(p) ? p.toFixed(decimalsForTick(tick)) : '—'; }
   function pad2(n) { return (n < 10 ? '0' : '') + n; }
   // Market clock: seconds since midnight → "10:42:15".
+  // Clock time of day. Times before today's midnight (yesterday's session, the overnight) wrap to 0–24h.
   function fmtClock(sec, withSeconds = true) {
-    sec = Math.max(0, Math.floor(sec));
+    sec = ((Math.floor(sec) % 86400) + 86400) % 86400;
     const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
     return h + ':' + pad2(m) + (withSeconds ? ':' + pad2(s) : '');
   }

@@ -31,7 +31,8 @@
   }
 
   // ---------- hosting ----------
-  async function hostGame(solo) {
+  // preset: settings to use for this room (quick play). autostart: start the match straight away.
+  async function hostGame(solo, preset, autostart) {
     if (app.busy) return;
     app.busy = true;
     DTA.sfx.unlock();
@@ -48,7 +49,7 @@
         hn.destroy();
       }
       const saved = store.get('lastSettings', null);
-      const settings = Object.assign({}, saved || {}, { seed: '' });
+      const settings = Object.assign({}, saved || {}, { seed: '' }, preset || {});
       if (solo && (!saved || saved.bots === 0)) settings.bots = Math.max(3, settings.bots || 0);
       const host = new DTA.GameHost(hn, { code, settings });
       const client = new DTA.GameClient();
@@ -62,6 +63,7 @@
       ui.lobby.resetKey();
       ui.show('lobby');
       app.backdrop.stop();
+      if (autostart) setTimeout(() => { if (app.client === client && client.phase === 'lobby') client.start(); }, 250);
       if (!solo && st !== 'online') ui.toast('Could not reach the matchmaking server (' + (hn.statusDetail || 'offline') + '). You can still play against bots, and other tabs in this browser can join.', 'warn', { ms: 7000 });
     } catch (err) {
       console.error(err);
@@ -232,6 +234,11 @@
     else if (k === '-' || k === '_') G.qtyStep(-1);
     else if (k === ' ') { G.chart().resetView(); G.ladder().recenter(); }
     else if (k === 'g' || k === 'G') G.toggleGrid();
+    else if (k === 'l' || k === 'L') G.toggleLevels();
+    else if (k === 'w' || k === 'W') G.toggleWide();
+    else if (k === 'd' || k === 'D') G.chart().viewToday();
+    else if (k === 'a' || k === 'A') G.chart().viewAll();
+    else if (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown' || k === 'Home' || k === 'End') handled = G.chart().key(k);
     else if (k === 'h' || k === 'H') G.chart().setTool('hline');
     else if (k === 't' || k === 'T') G.chart().setTool('trend');
     else if (k === 'Delete' || k === 'Backspace') handled = G.chart().deleteSelected();

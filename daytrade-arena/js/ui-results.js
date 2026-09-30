@@ -122,7 +122,26 @@
     if (r.duel === 'predict' && r.predict && r.predict.length) {
       wrap.appendChild(el('div.res-panel', [el('div.ph', el('h3', 'The calls')), el('div.debrief', r.predict.map((h) => 'R' + h.round + ' ' + h.sym + ' ' + (h.dir > 0 ? '▲' : h.dir < 0 ? '▼' : '•') + ' ' + fmtPct(h.pct, 2)).join('   ·   '))]));
     }
+    if (r.recap) wrap.appendChild(recapView(r.recap));
     return wrap;
+  }
+
+  // What the market did: each symbol's day type or small-cap playbook, and how it treated its levels.
+  function recapView(rc) {
+    const cards = el('div.recap-grid');
+    for (const x of rc.syms) {
+      const react = x.reactions.length ? el('ul.recap-rx', x.reactions.map((q) => el('li', [el('span.muted', fmtClock(q.t, false)), ' ', el('b', q.label), ' ', q.kind]))) : el('p.muted.small', 'No clean tests of a key level while you were trading.');
+      cards.appendChild(el('div.recap-card', [
+        el('div.recap-head', [el('b', x.sym), el('span.' + (x.chg >= 0 ? 'pos' : 'neg'), fmtPct(x.chg, 2) + ' on the day')]),
+        x.type ? el('div.recap-type', x.type + (x.marketType ? ' · market: ' + x.marketType.toLowerCase() : '')) : null,
+        x.play ? el('p.small', x.play) : null,
+        el('p.small.muted', 'Key levels: ' + x.holds + ' held, ' + x.breaks + ' broke'),
+        react
+      ]));
+    }
+    const kids = [el('div.ph', el('h3', '📊 What the market did')), cards];
+    if (rc.cal && rc.cal.length) kids.push(el('div.debrief', 'Data: ' + rc.cal.map((e) => e.name + ' ' + fmtClock(e.t, false) + (e.act ? ' ' + e.act + (e.fc ? ' vs ' + e.fc : '') : '')).join(' · ')));
+    return el('div.res-panel', kids);
   }
   function who(x) {
     return el('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '8px' } }, [
@@ -230,6 +249,7 @@
       rivals: (sym) => state.showAll ? r.fills.filter((f) => f[0] !== me && f[2] === sym) : [],
       news: (sym) => r.news.filter((n) => !n.sym || n.sym === sym),
       player: (id) => players.get(id), onModify() {}, onCancel() {},
+      days: () => g.days, levels: (sym) => C().levels(sym), cal: () => g.cal,
       highlight: () => (state.trip && state.trip.sym === state.sym ? { t0: state.trip.open, t1: state.trip.close, entry: state.trip.entry, exit: state.trip.exit, side: state.trip.side, qty: state.trip.qty, pnl: state.trip.pnl } : null)
     };
     const chart = new DTA.Chart(cv, env, { replay: true });
@@ -282,7 +302,8 @@
         const plotW = chart.layout ? chart.layout.plotW : 800;
         const bars = Math.max(1, (t.close - t.open) / tf);
         chart.barW = clamp((plotW * 0.45) / bars, 3, 26);
-        chart.right = (t.close - r.start) / tf + Math.max(6, bars * 0.5);
+        chart.data();
+        chart.right = chart.idxOfT(t.close) + Math.max(6, bars * 0.5);
         chart.dirty = true;
       } else setT(r.end);
       const loop = () => { if (!cv.isConnected) return; if (chart.dirty) { chart.dirty = false; chart.render(); } requestAnimationFrame(loop); };
@@ -325,7 +346,7 @@
     const lines = [['Symbol', 'Date/Time', 'Buy/Sell', 'Quantity', 'Price', 'Proceeds', 'Commission'].join(',')];
     const day = today();
     for (const f of fills) {
-      lines.push([f.sym, day + ', ' + fmtClock(f.t).padStart(8, '0'), f.side > 0 ? 'BUY' : 'SELL', f.side > 0 ? f.qty : -f.qty, f.px.toFixed(4), (-f.side * f.qty * f.px).toFixed(2), (-(f.comm + f.fee)).toFixed(2)].map(csvCell).join(','));
+      lines.push([f.sym, day + ', ' + fmtClock(f.t).padStart(8, '0'), f.side > 0 ? 'BUY' : 'SELL', f.side > 0 ? f.qty : -f.qty, f.px.toFixed(4), (-f.side * f.qty * f.px * (f.mult || 1)).toFixed(2), (-(f.comm + f.fee)).toFixed(2)].map(csvCell).join(','));
     }
     downloadText('day-trade-arena-fills-' + day + '.csv', lines.join('\n'));
     ui.toast('Fills exported. In Tradalytics, choose Import and select this file.', 'good');

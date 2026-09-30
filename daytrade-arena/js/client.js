@@ -117,6 +117,10 @@
           this.emit('elim', m);
           break;
         }
+        case 'cal':
+          if (g) g.cal = m.c || [];
+          this.emit('cal', m.c);
+          break;
         case 'results':
           if (g) g.results = m.r;
           this.emit('results', m.r);
@@ -133,9 +137,17 @@
       const prev = this.game;
       const mk = m.market;
       const syms = {};
+      const LV = DTA.levels;
       for (const k in mk.syms) {
         const s = mk.syms[k];
-        syms[k] = Object.assign({}, s, { uid: DTA.uid('s'), tape: [], book: { b: [], a: [] }, version: 1, dirtyFrom: 0, prevLast: s.last, flash: 0, vap: null, heat: [], big: s.big || [] });
+        const sym = syms[k] = Object.assign({}, s, { uid: DTA.uid('s'), tape: [], book: { b: [], a: [] }, version: 1, dirtyFrom: 0, prevLast: s.last, flash: 0, vap: null, heat: [], big: s.big || [] });
+        // Market structure for the chart: 1-minute history before the match, and the levels built from it.
+        sym.meta = { tick: s.tick, kind: s.kind || 'stock', cls: s.cls || 'large', rth: s.rth || [DTA.RTH_OPEN, DTA.RTH_CLOSE], round: s.round, conf: s.conf || 0, orMin: s.orMin || 15 };
+        sym.histBars = s.hist ? LV.unpackBars(s.hist) : [];
+        delete sym.hist;
+        sym.mult = s.mult || 1;
+        sym.priorLv = s.prior || [];
+        this.rebuildDev(sym, mk.start);
       }
       const symList = Object.keys(syms);
       const keepFocus = prev && prev.focus && syms[prev.focus] ? prev.focus : symList[0];
@@ -150,7 +162,8 @@
         lb: m.lb || [], lbHist: {}, news: mk.news || [], score: m.score || {},
         predict: m.predict ? Object.assign({ calls: {}, ref: null }, m.predict) : null,
         perRound: prev && prev.mode === m.mode && m.round > 1 ? prev.perRound : [],
-        results: null, watch: null, newRound: !!(prev && m.round > 1)
+        results: null, watch: null, newRound: !!(prev && m.round > 1),
+        cal: mk.cal || [], days: mk.days || ['', ''], weekday: mk.weekday
       };
       if (prev && m.round > 1 && prev.lbHist) g.lbHist = {};
       this.recordLb(g.lb, g.t);
@@ -178,6 +191,9 @@
         if (d[9] !== null) s.lo = d[9];
         if (d[10] !== null) s.open = d[10];
         if (d[11]) { for (const bp of d[11]) s.big.push(bp); if (s.big.length > 3000) s.big.splice(0, s.big.length - 3000); }
+        s.ssr = !!d[12];
+        if (from < s.devN) this.rebuildDev(s, g.start);
+        this.feedDev(s, g.start);
         s.version++;
       }
       if (m.f && g.syms[m.f]) {
@@ -204,6 +220,38 @@
       this.emit('tick', m);
     }
 
+    // Developing levels (overnight/premarket range, opening range, initial balance, high/low, VWAP) from the
+    // history plus every completed live bar. The last two live bars can still change, so they wait.
+    rebuildDev(s, start) {
+      s.dev = new DTA.levels.Developing(s.meta);
+      for (const b of s.histBars) s.dev.add([b[0], b[1], b[2], b[3], b[4], b[5]], 60);
+      s.devN = 0;
+      this.feedDev(s, start);
+    }
+    feedDev(s, start) {
+      const B = DTA.BAR_SEC;
+      while (s.devN < s.bars.length - 2) {
+        const b = s.bars[s.devN];
+        if (b[4] > 0) s.dev.add([start + s.devN * B, b[0], b[1], b[2], b[3], b[4]], B);
+        s.devN++;
+      }
+      s.lvKey = null;
+    }
+    // Key levels and confluence zones for a symbol, cached until the symbol changes.
+    levels(sym) {
+      const g = this.game;
+      const s = g && g.syms[sym];
+      if (!s) return null;
+      const key = s.version + ':' + Math.round(g.t / 5);
+      if (s.lvKey === key && s.lvCache) return s.lvCache;
+      const LV = DTA.levels;
+      const span = Math.max(s.meta.round ? Math.round((s.meta.round[1] * 2) / s.tick) : 0, Math.round(s.last * 0.02));
+      const list = LV.allLevels(s.meta, s.priorLv, s.dev, g.t, s.last, span);
+      s.lvCache = { list, zones: LV.zones(s.meta, list) };
+      s.lvKey = key;
+      return s.lvCache;
+    }
+
     recordLb(lb, t) {
       const g = this.game;
       for (const r of lb) {
@@ -227,13 +275,15 @@
       const a = g && g.acct;
       if (!a) return 0;
       let e = a.cash;
-      for (const p of a.pos) if (p[1]) e += p[1] * this.price(p[0]);
+      for (const p of a.pos) if (p[1]) e += p[1] * this.price(p[0]) * this.mult(p[0]);
       return e;
     }
+    mult(sym) { const s = this.game && this.game.syms[sym]; return s ? s.mult || 1 : 1; }
+    isFut(sym) { const s = this.game && this.game.syms[sym]; return !!s && s.kind === 'future'; }
     unrealized(sym) {
       const p = this.position(sym);
       if (!p || !p.qty) return 0;
-      return p.qty * (this.price(sym) - p.avg);
+      return p.qty * (this.price(sym) - p.avg) * this.mult(sym);
     }
     myOrders(sym) {
       const a = this.game && this.game.acct;

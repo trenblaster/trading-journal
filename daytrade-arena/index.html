@@ -44,15 +44,20 @@
         </div>
       </div>
 
+      <div class="card quick-card">
+        <h2 class="card-title">Quick play <span class="muted small">practice vs bots, one click</span></h2>
+        <div class="qp-grid" id="quickPlay"></div>
+      </div>
+
       <div class="card play-card">
-        <h2 class="card-title">Play</h2>
+        <h2 class="card-title">Play with friends</h2>
         <button id="btnHost" class="btn primary big">Host a game</button>
         <p class="hint">Friends join from their own devices with your room code.</p>
         <div class="join-row">
           <input id="joinCode" maxlength="5" placeholder="ROOM CODE" autocomplete="off" spellcheck="false" aria-label="Room code">
           <button id="btnJoin" class="btn">Join</button>
         </div>
-        <button id="btnSolo" class="btn ghost">Practice vs bots (offline)</button>
+        <button id="btnSolo" class="btn ghost">Custom practice vs bots (offline)</button>
         <div class="home-status" id="homeStatus" role="status" aria-live="polite"></div>
       </div>
 
@@ -174,6 +179,8 @@
         <div class="chart-toolbar" id="chartToolbar">
           <div class="sym-title" id="symTitle"></div>
           <div class="tb-group" id="tfGroup" role="group" aria-label="Timeframe"></div>
+          <select id="tfSelect" class="select small tf-select" aria-label="Timeframe"></select>
+          <span class="tb-break" aria-hidden="true"></span>
           <select id="chartType" class="select small" aria-label="Chart type">
             <option value="candles">Candles</option><option value="heikin">Heikin-Ashi</option><option value="ohlc">OHLC bars</option><option value="line">Line</option><option value="area">Area</option>
           </select>
@@ -181,9 +188,20 @@
             <button class="btn small" id="btnInd" aria-haspopup="true">Indicators ▾</button>
             <div class="dropdown" id="indMenu" hidden></div>
           </div>
-          <div class="tb-group" id="toolGroup" role="group" aria-label="Drawing tools"></div>
+          <div class="tb-dropdown">
+            <button class="btn small" id="btnDraw" aria-haspopup="true" title="Drawing tools (H horizontal line, T trend line)">✏️ Draw ▾</button>
+            <div class="dropdown tool-menu" id="drawMenu" hidden><div id="toolGroup" role="group" aria-label="Drawing tools"></div></div>
+          </div>
+          <div class="tb-group view-group" role="group" aria-label="Chart view">
+            <button type="button" id="btnLevels" aria-pressed="true" title="Key levels and confluence zones (L)">Levels</button>
+            <button type="button" id="btnToday" title="Fit today's session (D)">Today</button>
+            <button type="button" id="btnAll" title="Show all the history (A)">All</button>
+          </div>
           <button class="btn small" id="btnGrid" title="Show every symbol at once (G)" aria-pressed="false">⊞ Grid</button>
+          <button class="btn small" id="btnWide" title="Wider chart: hide the watchlist and leaderboard (W)" aria-pressed="false">⇔ Wide</button>
+          <button class="btn small icon-only" id="btnShot" title="Save the chart as a picture" aria-label="Save the chart as a picture">📷</button>
         </div>
+        <div class="chart-info" id="chartInfo" aria-live="polite"></div>
         <div class="chart-wrap">
           <canvas id="chart" aria-label="Price chart"></canvas>
           <div class="chart-grid" id="chartGrid" hidden></div>
@@ -204,6 +222,7 @@
           <button class="tab" data-btab="fills" role="tab">Fills</button>
           <button class="tab" data-btab="trips" role="tab">Trades</button>
           <button class="tab" data-btab="news" role="tab">News <span class="badge" id="newsCount"></span></button>
+          <button class="tab" data-btab="cal" role="tab">Calendar <span class="badge" id="calCount"></span></button>
         </div>
         <div class="bottom-body" id="bottomBody"></div>
       </div>
@@ -220,9 +239,10 @@
         <div class="panel-head tabs" role="tablist">
           <button class="tab active" data-ttab="tape" role="tab">Time &amp; sales</button>
           <button class="tab" data-ttab="depth" role="tab">Depth</button>
+          <button class="tab" data-ttab="levels" role="tab">Levels</button>
           <span class="muted small tape-speed" id="tapeSpeed"></span>
         </div>
-        <div class="tape-wrap"><canvas id="tape"></canvas><canvas id="depth" hidden></canvas></div>
+        <div class="tape-wrap"><canvas id="tape"></canvas><canvas id="depth" hidden></canvas><div class="levels-list" id="levelsList" hidden></div></div>
       </div>
     </aside>
   </div>
@@ -240,6 +260,7 @@
   <div class="overlay-center" id="countdown" hidden></div>
   <div class="overlay-center" id="intermission" hidden></div>
   <div class="spectate-bar" id="spectateBar" hidden></div>
+  <div class="coach" id="coach" hidden></div>
 </section>
 
 <!-- ============ RESULTS ============ -->
@@ -276,6 +297,9 @@
 <script src="vendor/peerjs.min.js"></script>
 <script src="js/util.js"></script>
 <script src="js/config.js"></script>
+<script src="js/instruments.js"></script>
+<script src="js/levels.js"></script>
+<script src="js/paths.js"></script>
 <script src="js/market.js"></script>
 <script src="js/engine.js"></script>
 <script src="js/indicators.js"></script>

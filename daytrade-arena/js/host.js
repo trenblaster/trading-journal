@@ -5,11 +5,11 @@
   'use strict';
   const DTA = (typeof window !== 'undefined' ? window : globalThis).DTA;
   const {
-    MarketSim, Engine, Bot, BOTS, SYMBOLS, SYMBOL_SETS, SESSIONS, SCENARIOS, MODES, DUEL_TYPES, DEFAULT_SETTINGS,
+    MarketSim, Engine, Bot, BOTS, SYMBOLS, MARKETS, SESSIONS, SCENARIOS, MODES, DUEL_TYPES, DEFAULT_SETTINGS,
     PLAYER_COLORS, MAX_PLAYERS, AVATARS, EMOTES, RNG, hashStr, clamp, ind, roundTrips, fmtSignedMoney, fmtPct, BOT_QUIPS, parseClock
   } = DTA;
 
-  const PROTO = 3;
+  const PROTO = 4;
   const TICK_MS = 100;
   const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
   const r2 = (v) => Math.round(v * 100) / 100;
@@ -278,8 +278,18 @@
       if ('duel' in s) out.duel = pick(s.duel, Object.keys(DUEL_TYPES), d.duel);
       if ('scenario' in s) out.scenario = pick(s.scenario, ['random'].concat(SCENARIOS.map((x) => x.id)), d.scenario);
       if ('minutes' in s) out.minutes = Math.round(num(s.minutes, 2, 30, d.minutes));
+      if ('market' in s && MARKETS.some((x) => x.id === s.market) && s.market !== d.market) { out.market = s.market; out.syms = MARKETS.find((x) => x.id === s.market).pick.slice(); }
+      if ('syms' in s && Array.isArray(s.syms)) {
+        const mk = MARKETS.find((x) => x.id === out.market) || MARKETS[0];
+        const list = mk.syms.filter((k) => s.syms.includes(k));
+        if (list.length) out.syms = list.slice(0, 6);
+      }
+      if ('micro' in s) out.micro = !!s.micro;
       if ('session' in s) out.session = pick(s.session, SESSIONS.map((x) => x.id), d.session);
-      if ('symbolSet' in s) out.symbolSet = pick(s.symbolSet, SYMBOL_SETS.map((x) => x.id), d.symbolSet);
+      const mkt = MARKETS.find((x) => x.id === out.market) || MARKETS[0];
+      if (!Array.isArray(out.syms) || !out.syms.length) out.syms = mkt.pick.slice();
+      const sess = SESSIONS.find((x) => x.id === out.session);
+      if (sess && sess.futuresOnly && out.syms.some((k) => !(SYMBOLS[k] && SYMBOLS[k].kind === 'future'))) out.session = 'full';
       if ('startCash' in s) out.startCash = pick(+s.startCash, [10000, 25000, 50000, 100000, 250000, 1000000], d.startCash);
       if ('leverage' in s) out.leverage = pick(+s.leverage, [1, 2, 4, 6, 10], d.leverage);
       if ('commissions' in s) out.commissions = !!s.commissions;
@@ -332,10 +342,10 @@
         symbols = sc.symbols;
         start = parseClock(sc.session[0]); end = parseClock(sc.session[1]);
       } else {
-        const set = SYMBOL_SETS.find((x) => x.id === s.symbolSet) || SYMBOL_SETS[0];
-        symbols = set.syms;
+        symbols = this.resolveSyms(s, seed);
         const sess = SESSIONS.find((x) => x.id === s.session) || SESSIONS[0];
         start = sess.start; end = sess.end;
+        if (sess.futuresOnly && symbols.some((d) => d.kind !== 'future')) { start = SESSIONS[0].start; end = SESSIONS[0].end; }
       }
       if (mode === 'elim') {
         g.rounds = clamp(parts.length - 1, 1, 7);
@@ -346,7 +356,8 @@
       }
       g.speed = (end - start) / (minutes * 60);
       g.tfSec = ind.defaultTf(g.speed);
-      const market = new MarketSim({ seed, symbols, start, end, speed: g.speed, volatility: s.volatility, events: s.events, scenario: g.scenario });
+      const defs = symbols.map((k) => (typeof k === 'string' ? SYMBOLS[k] : k)).filter(Boolean);
+      const market = new MarketSim({ seed, defs, start, end, speed: g.speed, volatility: s.volatility, events: s.events, scenario: g.scenario });
       this.useMarket(market, { maxShares: 0 });
       for (const p of parts) g.engine.addAccount(p.id, s.startCash);
       this.spawnBots();
@@ -354,11 +365,28 @@
       this.setPhase('countdown', 3000);
     }
 
+    // The match's instruments: market preset symbols, with generated small-cap runners and micro futures.
+    resolveSyms(s, seed) {
+      const mk = MARKETS.find((x) => x.id === s.market) || MARKETS[0];
+      const keys = (Array.isArray(s.syms) && s.syms.length ? s.syms : mk.pick).filter((k) => mk.syms.includes(k));
+      const r = new RNG(seed).fork('runners');
+      const used = new Set(keys.filter((k) => k[0] !== '@'));
+      const out = [];
+      for (const k of keys.length ? keys : mk.pick) {
+        if (k[0] === '@') { const d = DTA.makeRunner(r, used); used.add(d.sym); out.push(d); continue; }
+        const d = SYMBOLS[k];
+        if (!d) continue;
+        out.push(s.micro && d.kind === 'future' ? DTA.microOf(d) : d);
+      }
+      return out;
+    }
+
     useMarket(market, engineOpts) {
       const g = this.g, s = g.s;
       g.market = market;
       g.engine = new Engine(market, Object.assign({ startCash: s.startCash, leverage: s.leverage, commissions: s.commissions }, engineOpts || {}));
       market.hooks.news = (n) => this.onNews(n);
+      market.hooks.cal = () => this.broadcast({ t: 'cal', c: market.calendarView() });
       market.hooks.halt = (sim, on, t) => this.broadcast({ t: 'halt', sym: sim.sym, on, at: t, until: sim.haltUntil, reason: sim.haltReason });
       g.lastSample = -1;
       for (const b of g.bots) b.setContext(this.botCtx());
@@ -393,18 +421,21 @@
       const g = this.g, s = g.s;
       g.round++;
       const r = g.rng.fork('round' + g.round);
-      const pool = s.duel === 'predict' ? ['NOVA', 'CHIP', 'MEME', 'QBIT', 'OILX', 'BIOT', 'FINX', 'SPYR'] : ['NOVA', 'CHIP', 'MEME', 'QBIT', 'OILX', 'BIOT', 'FINX'];
-      const sym = r.pick(pool);
-      const hist = s.duel === 'predict' ? 50 * g.predict.tf : 600;
+      // Each round: one instrument from the chosen market, at a random time of its regular session.
+      const seedR = (g.seed + g.round * 7919) >>> 0;
+      const pool = this.resolveSyms(s, seedR);
+      const def = r.pick(pool.length ? pool : [SYMBOLS.NOVA]);
+      const sym = def.sym;
+      // Call It reads the 1-minute history; Scalp Duel also plays five minutes first so the short timeframe has candles.
+      const hist = s.duel === 'predict' ? 0 : 300;
       const live = s.duel === 'predict' ? g.predict.K * g.predict.tf : 900;
-      const t0 = Math.round(r.range(DTA.RTH_OPEN, DTA.RTH_CLOSE - hist - live - 300) / 60) * 60;
+      const [a, b] = def.rth || [DTA.RTH_OPEN, DTA.RTH_CLOSE];
+      const t0 = Math.round(r.range(a + 1200, Math.max(a + 1260, b - hist - live - 300)) / 60) * 60;
       const speed = s.duel === 'predict' ? live / 6 : live / s.scalpSec;
       g.speed = speed;
       g.tfSec = s.duel === 'predict' ? g.predict.tf : ind.defaultTf(speed);
-      const market = new MarketSim({ seed: (g.seed + g.round * 7919) >>> 0, symbols: [sym], start: t0, end: t0 + hist + live + (s.duel === 'predict' ? 600 : 0), speed, volatility: s.volatility, events: s.duel === 'predict' ? 'calm' : s.events });
-      // Fast-forward the history so everyone starts with a chart to read.
+      const market = new MarketSim({ seed: seedR, defs: [def], start: t0, end: t0 + hist + live + (s.duel === 'predict' ? 600 : 0), speed, volatility: s.volatility, events: s.duel === 'predict' ? 'calm' : s.events });
       while (market.t < t0 + hist - 0.001) { market.step(Math.min(5, t0 + hist - market.t)); for (const sm of market.list) sm.prints.length = 0; }
-      market.news.length = 0;
       for (const sm of market.list) { sm.dirtyFrom = 0; }
       this.useMarket(market, { maxShares: s.duel === 'scalp' ? s.scalpMaxShares : 0 });
       g.market.hooks.news = (n) => this.onNews(n);
@@ -447,13 +478,20 @@
         t: 'start', mode: g.mode, duel: g.duel, seed: g.seedLabel, round: g.round, rounds: g.rounds, roundEnds: g.roundEnds,
         stopAt: g.stopAt, speed: g.speed, tf: g.tfSec, phase: this.phase, left: Math.max(0, this.phaseEnd - nowMs()),
         scenario: g.scenario ? { id: g.scenario.id, name: g.scenario.name, icon: g.scenario.icon, brief: g.scenario.brief } : null,
-        settings: { startCash: g.s.startCash, leverage: g.s.leverage, commissions: g.s.commissions, rivals: g.s.rivals, targetPct: g.s.targetPct, bustPct: g.s.bustPct, scalpMaxShares: g.s.scalpMaxShares, predictCandles: g.s.predictCandles, minutes: g.s.minutes },
-        market: m.snapshot(), players: [...this.players.values()].map((x) => this.publicPlayer(x)),
+        settings: { startCash: g.s.startCash, leverage: g.s.leverage, commissions: g.s.commissions, rivals: g.s.rivals, targetPct: g.s.targetPct, bustPct: g.s.bustPct, scalpMaxShares: g.s.scalpMaxShares, predictCandles: g.s.predictCandles, minutes: g.s.minutes, market: g.s.market, micro: !!g.s.micro },
+        market: this.marketSnap(), players: [...this.players.values()].map((x) => this.publicPlayer(x)),
         acct: p && p.slot >= 0 ? g.engine.view(p.id) : null, lb: this.leaderboard(), score: this.scoreBoard(),
         fills: p && g.engine.acct(p.id) ? g.engine.acct(p.id).fills.slice(-300) : [],
         rivalFills: g.s.rivals === 'live' ? g.allFills.filter((f) => !p || f[0] !== p.id).slice(-400) : [],
         predict: g.predict ? { K: g.predict.K, sym: g.predict.sym, history: g.predict.history } : null
       };
+    }
+    // The market snapshot plus what the engine decides: margin per contract and position limits.
+    marketSnap() {
+      const g = this.g, m = g.market, e = g.engine;
+      const snap = m.snapshot();
+      for (const k in snap.syms) { snap.syms[k].margin = Math.round(e.marginPer(k)); snap.syms[k].maxQty = e.maxQty(k); }
+      return snap;
     }
     broadcastSnapshots() {
       for (const p of this.players.values()) if (!p.isBot) this.sendTo(p, this.snapshotFor(p));
@@ -864,7 +902,7 @@
         // null = no losing trades (infinite profit factor); Infinity would not survive JSON over the network.
         pf: sumL < 0 ? sumW / -sumL : sumW > 0 ? null : 0,
         maxDD: multi ? (sc.maxDD || 0) : a.maxDD, comm: r2(multi ? (sc.comm || 0) : a.comm), fees: r2(multi ? (sc.fees || 0) : a.fees),
-        shares: fills.reduce((x, f) => x + f.qty, 0), dollars: fills.reduce((x, f) => x + f.qty * f.px, 0),
+        shares: fills.reduce((x, f) => x + f.qty, 0), dollars: fills.reduce((x, f) => x + f.qty * f.px * (f.mult || 1), 0),
         mc: multi ? (sc.mc || 0) : a.marginCalls, busted: a ? a.busted : false, maxGross: multi ? (sc.maxGross || 0) : a.maxGross,
         hold: holds.length ? holds.reduce((x, y) => x + y, 0) / holds.length : 0,
         longPnl: trips.filter((t) => t.side > 0).reduce((x, t) => x + t.pnl, 0), shortPnl: trips.filter((t) => t.side < 0).reduce((x, t) => x + t.pnl, 0),
@@ -897,7 +935,8 @@
         scenario: g.scenario ? { name: g.scenario.name, icon: g.scenario.icon, debrief: g.scenario.debrief, brief: g.scenario.brief } : null,
         rows, awards: awards(rows, g), eqHist, fills: g.singleMarket ? g.allFills : [], singleMarket: g.singleMarket,
         syms, perRound: g.perRound, predict: g.predict ? g.predict.history : null, start: g.market.start, end: g.market.end,
-        news: g.singleMarket ? g.market.news.slice() : [], settings: { startCash: g.s.startCash, leverage: g.s.leverage, commissions: g.s.commissions }
+        news: g.singleMarket ? g.market.news.filter((n) => n.t >= g.market.start - 1).slice() : [], settings: { startCash: g.s.startCash, leverage: g.s.leverage, commissions: g.s.commissions },
+        recap: g.singleMarket ? g.market.recap() : null, mult: Object.fromEntries(g.market.list.map((x) => [x.sym, x.def.mult || 1]))
       };
     }
   }

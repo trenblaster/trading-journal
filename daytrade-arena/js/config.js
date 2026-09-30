@@ -19,10 +19,6 @@
     OILX: { sym: 'OILX', name: 'Oilex Energy', sector: 'Energy', p: 63.75, beta: 0.45, oil: 1.0, vol: 0.010, depth: 1700, spread: 1, printRate: 1.0, printSize: 200, cap: '88B', float: 1.4e9, halts: false, htb: false, desc: 'Oil major. Follows crude more than stocks.' },
     MEME: { sym: 'MEME', name: 'MemeCo Holdings', sector: 'Retail', p: 4.18, beta: 0.8, vol: 0.075, depth: 7500, spread: 1, printRate: 1.9, printSize: 1400, cap: '310M', float: 18e6, halts: true, htb: true, borrowFee: 0.04, maxShort: 40000, shortInterest: 0.31, desc: 'Heavily shorted meme stock. Squeezes, halts, chaos.' },
     BIOT: { sym: 'BIOT', name: 'Biotiq Therapeutics', sector: 'Biotech', p: 11.62, beta: 0.6, vol: 0.045, depth: 3200, spread: 1, printRate: 1.2, printSize: 550, cap: '640M', float: 42e6, halts: true, htb: true, borrowFee: 0.03, maxShort: 30000, shortInterest: 0.18, desc: 'One-drug biotech. News makes or breaks it.' },
-    ES: { sym: 'ES', name: 'S&P 500 futures', sector: 'Index', p: 5812.25, tick: 0.25, beta: 1.0, vol: 0.0015, depth: 900, spread: 1, printRate: 3.2, printSize: 6, cap: 'Futures', float: 0, halts: false, htb: false, desc: 'E-mini S&P. Deep book, grinds between levels, respects VWAP and round numbers.' },
-    NQ: { sym: 'NQ', name: 'Nasdaq 100 futures', sector: 'Index', p: 20415.5, tick: 0.25, beta: 1.3, vol: 0.0018, depth: 180, spread: 1, printRate: 3.0, printSize: 3, cap: 'Futures', float: 0, halts: false, htb: false, desc: 'E-mini Nasdaq. Faster and wider swings than ES, sweeps highs and lows.' },
-    CL: { sym: 'CL', name: 'Crude oil futures', sector: 'Commodity', p: 71.84, tick: 0.01, beta: 0.2, oil: 0.9, vol: 0.007, depth: 60, spread: 1, printRate: 2.6, printSize: 4, cap: 'Futures', float: 0, halts: false, htb: false, desc: 'WTI crude. Spiky, headline driven, stop runs through levels.' },
-    GC: { sym: 'GC', name: 'Gold futures', sector: 'Commodity', p: 2648.3, tick: 0.1, beta: -0.2, rates: -1.2, vol: 0.007, depth: 40, spread: 1, printRate: 2.0, printSize: 3, cap: 'Futures', float: 0, halts: false, htb: false, desc: 'Gold. Trends on rates and the dollar, clean moves between levels.' },
     QBIT: { sym: 'QBIT', name: 'QuBit Quantum', sector: 'Tech', p: 2.37, beta: 1.1, vol: 0.10, depth: 12000, spread: 1, printRate: 2.0, printSize: 2800, cap: '82M', float: 3.4e6, halts: true, htb: true, borrowFee: 0.02, maxShort: 25000, shortInterest: 0.22, desc: 'Low-float small cap. Rips and dumps on nothing.' }
   };
 
@@ -31,9 +27,6 @@
     { id: 'mega', name: 'Mega caps', syms: ['SPYR', 'NOVA', 'CHIP', 'FINX'] },
     { id: 'small', name: 'Small-cap runners', syms: ['MEME', 'QBIT', 'BIOT'] },
     { id: 'all', name: 'Whole market', syms: ['SPYR', 'NOVA', 'CHIP', 'FINX', 'OILX', 'MEME'] },
-    { id: 'index', name: 'Index futures (ES, NQ)', syms: ['ES', 'NQ'] },
-    { id: 'commod', name: 'Oil & gold (CL, GC)', syms: ['CL', 'GC'] },
-    { id: 'futures', name: 'Futures (ES, NQ, CL, GC)', syms: ['ES', 'NQ', 'CL', 'GC'] },
     { id: 'NOVA', name: 'Just NOVA', syms: ['NOVA'] },
     { id: 'MEME', name: 'Just MEME', syms: ['MEME'] },
     { id: 'QBIT', name: 'Just QBIT', syms: ['QBIT'] },
@@ -208,7 +201,13 @@
     { kind: 'mkt', tone: -1, w: 2, text: 'CPI comes in hot at 0.5% month over month', target: 'MKT', abs: [-0.008, -0.004], drift: [-0.008, -0.002], rates: 0.02 },
     { kind: 'mkt', tone: -1, w: 2, text: '10-year Treasury yield spikes to 5%', target: 'MKT', abs: [-0.006, -0.003], drift: [-0.006, -0.001], rates: 0.015 },
     { kind: 'mkt', tone: -1, w: 1, text: 'Geopolitical tensions escalate; oil bid, stocks slip', target: 'MKT', abs: [-0.007, -0.003], drift: [-0.005, 0], oilAlso: 0.015 },
-    { kind: 'mkt', tone: 0, w: 1, text: 'Large block of SPYR puts crosses the tape', target: 'MKT', abs: [-0.002, 0.002], drift: [-0.003, 0.003] }
+    { kind: 'mkt', tone: 0, w: 1, text: 'Large block of SPYR puts crosses the tape', target: 'MKT', abs: [-0.002, 0.002], drift: [-0.003, 0.003] },
+    // commodities
+    { kind: 'oil', tone: 1, w: 1, text: 'Drone strike reported near a major Gulf oil terminal', target: 'OIL', abs: [0.012, 0.025], drift: [-0.01, 0.01] },
+    { kind: 'oil', tone: -1, w: 1, text: 'OPEC+ sources: group discussing a larger output hike', target: 'OIL', abs: [-0.02, -0.01], drift: [-0.012, 0.002] },
+    { kind: 'gold', tone: 1, w: 2, text: 'Dollar slides; gold bid as central banks keep buying', target: 'GOLD', abs: [0.003, 0.007], drift: [0.002, 0.008] },
+    { kind: 'gold', tone: -1, w: 2, text: 'Real yields jump, gold slips below the overnight range', target: 'GOLD', abs: [-0.007, -0.003], drift: [-0.008, -0.001] },
+    { kind: 'gold', tone: 1, w: 1, text: 'Safe-haven flows: geopolitical flare-up lifts gold', target: 'GOLD', abs: [0.004, 0.009], drift: [-0.002, 0.006], oilAlso: 0.008 }
   ];
 
   // ---------- bots ----------
@@ -216,7 +215,9 @@
     { key: 'momo', name: 'Momo Mike', avatar: '🚀', style: 'momentum', blurb: 'Buys breakouts on volume, trails a stop.' },
     { key: 'rita', name: 'Reversion Rita', avatar: '🪃', style: 'meanrev', blurb: 'Fades stretched moves back to the mean.' },
     { key: 'sam', name: 'Scalper Sam', avatar: '⚡', style: 'scalper', blurb: 'Joins the bid, takes a few ticks, repeats.' },
+    { key: 'lou', name: 'Level Lou', avatar: '📏', style: 'levels', blurb: 'Fades the first test of key levels and buys the retest of a break.' },
     { key: 'val', name: 'VWAP Val', avatar: '📐', style: 'vwap', blurb: 'Buys pullbacks to VWAP in an uptrend and shorts rips into it in a downtrend.' },
+    { key: 'olivia', name: 'ORB Olivia', avatar: '⏰', style: 'orb', blurb: 'Trades the opening range breakout, stop in the middle of the range.' },
     { key: 'yuki', name: 'YOLO Yuki', avatar: '🎰', style: 'yolo', blurb: 'Max size, no stops, pure vibes.' },
     { key: 'ned', name: 'Newsy Ned', avatar: '📰', style: 'news', blurb: 'Trades headlines in milliseconds.' },
     { key: 'dan', name: 'Diamond Dan', avatar: '💎', style: 'diamond', blurb: 'Buys the strongest stock early and never sells.' },
@@ -258,7 +259,9 @@
     scenario: 'random',
     minutes: 8,
     session: 'full',
-    symbolSet: 'mixed',
+    market: 'index',
+    syms: null,              // symbols picked from the market (null = the market's default pick)
+    micro: false,            // micro futures contracts (a tenth of the size)
     startCash: 100000,
     leverage: 4,
     commissions: true,
@@ -294,7 +297,13 @@
     'Press ? in a match for the hotkeys. B / S buy and sell, F flattens, R reverses.',
     'Knockout: the lowest account at every bell goes home. Sometimes the right move is to sit tight.',
     'VWAP is the market\'s average price today. Many bots buy dips to it in an uptrend.',
-    'Export your fills after a match and import them into the Tradalytics journal.'
+    'Export your fills after a match and import them into the Tradalytics journal.',
+    'Levels that stack up (prior day high plus the overnight high, say) are confluence zones. Price reacts there more often.',
+    'A level that breaks often gets retested from the other side: old resistance becomes support.',
+    'Futures: ES moves $12.50 a tick per contract, NQ $5, crude $10, gold $10. Size accordingly.',
+    'Small caps: the premarket high and VWAP are the levels everyone watches. Halts come fast.',
+    'Data at 8:30 and 10:00 moves the whole market. Liquidity thins out right before the release.',
+    'Drag the window in the strip under the chart to look back through yesterday and the overnight session.'
   ];
 
   const HOTKEYS = [
@@ -304,7 +313,9 @@
     ['R', 'Reverse position'], ['C', 'Cancel orders on this symbol'],
     ['1–6', 'Switch symbol'], ['[ / ]', 'Timeframe down / up'],
     ['+ / −', 'Change ticket size'], ['Space', 'Recenter chart and ladder'],
-    ['G', 'Grid of every chart'], ['H', 'Horizontal line tool'], ['T', 'Trend line tool'], ['Esc', 'Cancel drawing / close dialogs'],
+    ['G', 'Grid of every chart'], ['W', 'Wide chart (hide the left column)'], ['L', 'Key levels on / off'], ['D', 'Fit today on the chart'], ['A', 'Show all the history'],
+    ['← →', 'Scroll the chart'], ['↑ ↓', 'Zoom the chart'], ['End', 'Back to live'],
+    ['H', 'Horizontal line tool'], ['T', 'Trend line tool'], ['Esc', 'Cancel drawing / close dialogs'],
     ['Enter', 'Chat'], ['?', 'This help']
   ];
 

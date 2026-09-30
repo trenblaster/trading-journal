@@ -109,7 +109,7 @@
     }
     const table = el('table.grid-table', [
       el('thead', el('tr', heads.map((h, k) => el('th' + (k === 1 || h === 'Notes' ? '.l' : ''), h)))),
-      el('tbody', r.rows.map((x, i) => el('tr', { style: x.id === me ? { background: 'rgba(57,135,229,.08)' } : null }, row(x, i).map((v, k) => el('td' + (k === 1 || heads[k] === 'Notes' ? '.l' : ''), v)))))
+      el('tbody', r.rows.map((x, i) => el('tr', { style: x.id === me ? { background: 'rgba(57,135,229,.08)' } : null }, row(x, i).map((v, k) => el('td' + (k === 1 ? '.l' : heads[k] === 'Notes' ? '.l.wrap' : ''), v)))))
     ]);
     wrap.appendChild(el('div.res-panel', [el('div.ph', el('h3', 'Standings')), el('div.res-scroll', table)]));
     if (r.duel === 'scalp' && r.perRound.length) {

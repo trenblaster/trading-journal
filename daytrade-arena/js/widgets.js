@@ -572,6 +572,7 @@
         ctx.fillText(label, L - 10, cy);
         ctx.font = '16px ' + EMOJI;
         ctx.fillText(p.avatar, L - 10 - nw - 8, cy);
+        ctx.font = v.id === this.env.me ? FONT_B : FONT;
         ctx.fillStyle = th.text2; ctx.textAlign = v.r >= 0 ? 'left' : 'right';
         ctx.fillText(fmtPct(v.r, 2), v.r >= 0 ? x1 + 6 : x1 - 6, cy);
         ctx.textBaseline = 'alphabetic';

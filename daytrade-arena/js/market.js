@@ -775,10 +775,15 @@
       }
       for (const s of this.list) if (this.exposed(s, ev)) s.effects.push({ kind: 'depth', mult: 0.55, until: ev.t + 20, dur: 320 });
     }
-    exposed(s, ev) {
-      for (const k in ev.hit) if (s.def.drivers && s.def.drivers[k]) return true;
-      return false;
+    // How much a release moves a symbol: its drivers' share of the event, relative to the symbol's own daily
+    // volatility. Crude inventories matter to CL, not to a small cap running on its own news.
+    relevance(s, ev) {
+      const dr = s.def.drivers || {};
+      let x = 0;
+      for (const k in ev.hit) if (dr[k]) x += Math.abs(ev.hit[k] * dr[k]) * DRIVERS[k].sd;
+      return x / Math.max(1e-6, s.def.vol || 0.01);
     }
+    exposed(s, ev) { return this.relevance(s, ev) >= 0.08; }
     calRelease(ev, t) {
       const r = ev.r, z = ev.z;
       const scale = [0, 0.18, 0.32, 0.5][ev.imp] || 0.3;
@@ -811,7 +816,8 @@
       }
       const main = ev.hit.MKT !== undefined ? 'MKT' : Object.keys(ev.hit)[0];
       const tone = Math.sign(z * ev.hit[main]) || 0;
-      this.pushNews(t, null, calHeadline(ev, z), tone, ev.imp >= 2 && Math.abs(z) > 0.8);
+      const moves = this.list.some((s) => this.exposed(s, ev));
+      this.pushNews(t, null, calHeadline(ev, z), tone, moves && ev.imp >= 2 && Math.abs(z) > 0.8);
       if (this.hooks.cal) this.hooks.cal(ev);
     }
 
@@ -1056,7 +1062,8 @@
 
     // Public economic calendar: actuals only once released.
     calendarView() {
-      return this.calendar.filter((e) => e.t > this.start - 6 * 3600 || e.released).map((e) => ({ id: e.id, name: e.name, long: e.long, t: e.t, imp: e.imp, fc: e.fc, act: e.released ? e.act || null : null, done: e.released, tone: e.released ? Math.sign(e.z * (e.hit.MKT !== undefined ? e.hit.MKT : Object.values(e.hit)[0])) : 0 }));
+      return this.calendar.filter((e) => e.t > this.start - 6 * 3600 || e.released).map((e) => ({ id: e.id, name: e.name, long: e.long, t: e.t, imp: e.imp, fc: e.fc, act: e.released ? e.act || null : null, done: e.released, tone: e.released ? Math.sign(e.z * (e.hit.MKT !== undefined ? e.hit.MKT : Object.values(e.hit)[0])) : 0,
+        moves: e.moves || (e.moves = this.list.filter((s) => this.exposed(s, e)).map((s) => s.sym)) }));
     }
 
     snapshot() {

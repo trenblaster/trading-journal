@@ -405,6 +405,7 @@ input:focus, select:focus { border-color: var(--accent); outline: none; }
 .grid-table td { text-align: right; padding: 5px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
 .grid-table th:first-child, .grid-table td:first-child { text-align: left; }
 .grid-table td.l, .grid-table th.l { text-align: left; }
+.grid-table td.wrap { white-space: normal; min-width: 170px; max-width: 280px; line-height: 1.35; }
 .grid-table tr:hover td { background: var(--panel-2); }
 .empty { padding: 18px; color: var(--text-3); text-align: center; font-size: 13px; }
 .news-item { display: grid; grid-template-columns: 62px 48px 1fr; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--grid); font-size: 12px; }
@@ -439,6 +440,10 @@ input:focus, select:focus { border-color: var(--accent); outline: none; }
 .cal-table tr.done td { color: var(--text-3); }
 .cal-table tr.done td b { color: var(--text-2); }
 .cal-table tr.soon td { background: rgba(250, 178, 25, .07); }
+.cal-table tr.dim td { color: var(--text-3); }
+.cal-table tr.dim td b { color: var(--text-3); font-weight: 600; }
+.cal-table tr.dim.soon td { background: transparent; }
+.cal-table .mv-me { color: var(--text-1); font-weight: 800; }
 .ticket-panel { flex: none; padding: 8px 10px; gap: 6px; }
 .tk-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .tk-row.split > * { flex: 1; }

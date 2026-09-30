@@ -788,14 +788,16 @@
       const day = e.t < 0 ? g.days[0] + ' ' : '';
       const when = e.done ? 'Released' : e.t <= g.t ? 'Now' : 'in ' + fmtDuration(((e.t - g.t) / g.speed) * 1000) + ' (' + fmtHold(e.t - g.t) + ' market time)';
       const tone = e.tone > 0 ? 'pos' : e.tone < 0 ? 'neg' : '';
-      return el('tr' + (e.done ? '.done' : e.t - g.t < 1800 ? '.soon' : ''), [
+      const mv = e.moves || null;
+      const moves = mv && !mv.length ? el('span.muted', 'little here') : mv ? mv.map((k, i) => el('span' + (k === S.sym ? '.mv-me' : ''), (i ? ' ' : '') + k)) : '—';
+      return el('tr' + (e.done ? '.done' : e.t - g.t < 1800 ? '.soon' : '') + (mv && !mv.includes(S.sym) ? '.dim' : ''), [
         el('td', day + fmtClock(e.t, false)), el('td.l', el('b', e.long)), el('td.imp', { title: ['', 'Low', 'Medium', 'High'][e.imp] + ' impact' }, '★'.repeat(e.imp) + '☆'.repeat(3 - e.imp)),
-        el('td', e.fc || '—'), el('td.' + (tone || 'x'), e.act || (e.done ? '✓' : '—')), el('td.l', when)
+        el('td.l', moves), el('td', e.fc || '—'), el('td.' + (tone || 'x'), e.act || (e.done ? '✓' : '—')), el('td.l', when)
       ]);
     });
     const wrap = el('div');
-    wrap.appendChild(el('table.grid-table.cal-table', [el('thead', el('tr', [el('th', 'Time'), el('th.l', 'Event'), el('th', 'Impact'), el('th', 'Expected'), el('th', 'Actual'), el('th.l', 'When')])), el('tbody', rows)]));
-    wrap.appendChild(el('div.empty', { style: { textAlign: 'left', padding: '8px 10px' } }, 'Market time is New York time. Releases move the whole market, and the book thins out in the minutes before them.'));
+    wrap.appendChild(el('table.grid-table.cal-table', [el('thead', el('tr', [el('th', 'Time'), el('th.l', 'Event'), el('th', 'Impact'), el('th.l', 'Moves'), el('th', 'Expected'), el('th', 'Actual'), el('th.l', 'When')])), el('tbody', rows)]));
+    wrap.appendChild(el('div.empty', { style: { textAlign: 'left', padding: '8px 10px' } }, 'Market time is New York time. A release moves the markets it matters to (Moves), and their order books thin out in the minutes before it.'));
     return wrap;
   }
 
@@ -888,7 +890,8 @@
       if (up) parts.push(chip(up, 1));
       if (dn) parts.push(chip(dn, -1));
     }
-    const next = (g.cal || []).filter((e) => !e.done && e.t > g.t).sort((a, b) => a.t - b.t)[0];
+    // The next release that moves this symbol (crude inventories don't matter to a small-cap runner).
+    const next = (g.cal || []).filter((e) => !e.done && e.t > g.t && (!e.moves || e.moves.includes(S.sym))).sort((a, b) => a.t - b.t)[0];
     if (next) parts.push(el('span.ci.cal' + (next.imp >= 3 ? '.hot' : ''), { title: next.long + (next.fc ? ' · expected ' + next.fc : '') }, '⏱ ' + next.name + ' ' + fmtClock(next.t, false) + ' · in ' + fmtDuration(((next.t - g.t) / g.speed) * 1000)));
     if (s.ssr) parts.push(el('span.ci.ssr', { title: 'Short sale restriction: down 10% on the day, shorts only on an uptick' }, 'SSR'));
     if (s.runner) parts.push(el('span.ci.run', { title: s.runner.catalyst }, '📰 ' + s.runner.catalyst));

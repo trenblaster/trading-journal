@@ -324,6 +324,7 @@
       if (this.env.highlight) this.drawHighlight(ctx, L, n, s);
       if (this.show.vp) this.drawProfile(ctx, L, raw, d, s);
       if (this.show.vol) this.drawVolume(ctx, L, raw, i0, i1, n, volH);
+      this.lvBoxes = [];
       if (this.show.levels) this.drawLevels(ctx, L, s);
       else this.drawPrevClose(ctx, L, s);
       if (this.show.bb) this.drawBands(ctx, L, c.bb.up, c.bb.lo, c.bb.mid, th.s3, i0, i1, n);
@@ -344,7 +345,7 @@
       if (this.show.rivals) this.drawRivalFills(ctx, L, n, s);
       if (this.show.fills) this.drawMyFills(ctx, L, n, s);
       if (this.show.news) this.drawNews(ctx, L, n, s);
-      if (this.show.cal) this.drawCalendar(ctx, L, n);
+      if (this.show.cal) this.drawCalendar(ctx, L, n, s);
       this.drawLastLine(ctx, L, s, bars);
       this.drawOrders(ctx, L, s);
       this.drawGhost(ctx, L, s);
@@ -705,12 +706,14 @@
       let lastY = -1e9;
       ctx.font = FONT_S;
       const right = L.plotW - 6 - (this.show.vp ? L.plotW * 0.14 * 0.25 : 0);
+      this.lvBoxes = [];
       for (const lb of labels) {
         let y = Math.max(lb.y, lastY + 15);
         if (y > L.mainH - 8) continue;
         lastY = y;
         const tw = ctx.measureText(lb.text).width + 12;
         const x = right - tw;
+        this.lvBoxes.push([x, y - 8, tw, 16]);
         roundRect(ctx, x, y - 7.5, tw, 15, 7.5);
         ctx.fillStyle = alpha(this.th.panel, 0.88); ctx.fill();
         ctx.strokeStyle = alpha(lb.col, lb.conf ? 0.95 : 0.6); ctx.lineWidth = lb.conf ? 1.4 : 1; ctx.stroke();
@@ -743,7 +746,8 @@
         const x = L.plotW - tw - 8;
         // Top tag: level with the legend when there's room beside it, else under it (calendar flags sit lower).
         let y = top ? 12 : L.mainH - 24;
-        if (top && (this.legendW1 || 0) > x - 6) y = (this.legendW2 || 0) > x - 6 ? 46 : 29;
+        const lw1 = this.legendW1 === undefined ? 520 : this.legendW1, lw2 = this.legendW2 === undefined ? 330 : this.legendW2;
+        if (top && lw1 > x - 6) y = lw2 > x - 6 ? 46 : 29;
         roundRect(ctx, x, y - 8, tw, 16, 8);
         ctx.fillStyle = alpha(th.panel, 0.9); ctx.fill();
         ctx.strokeStyle = alpha(levelColor(th, K[o.named[0].k].grp), 0.7); ctx.lineWidth = 1; ctx.stroke();
@@ -939,43 +943,47 @@
     }
 
     // Economic calendar: released events as flags at the top, upcoming ones as a dashed line ahead of price.
-    drawCalendar(ctx, L, n) {
+    drawCalendar(ctx, L, n, s) {
       const raw = this.env.cal ? this.env.cal() : null;
       if (!raw || !raw.length) return;
       const th = this.th, now = this.env.now();
-      // Releases at the same minute share one flag.
+      // Releases at the same minute share one flag. Ones that don't move this symbol stay faint.
       const byT = new Map();
-      for (const e of raw) {
+      for (const e0 of raw) {
+        const e = Object.assign({}, e0, { rel: !e0.moves || !s || e0.moves.includes(s.sym) });
         const g = byT.get(e.t);
-        if (!g) byT.set(e.t, Object.assign({}, e, { list: [e] }));
-        else { g.list.push(e); g.imp = Math.max(g.imp, e.imp); g.name += ' · ' + e.name; g.long += ' · ' + e.long; g.done = g.done && e.done; }
+        if (!g) byT.set(e.t, Object.assign(e, { list: [e] }));
+        else { g.list.push(e); g.imp = Math.max(g.imp, e.imp); g.name += ' · ' + e.name; g.long += ' · ' + e.long; g.done = g.done && e.done; g.rel = g.rel || e.rel; }
       }
       const cal = [...byT.values()].sort((a, b) => a.t - b.t);
       // Flags sit just under the legend so they never hide behind it.
-      const Y0 = (this.legendW2 ? 37 : 20) + 17;
+      const Y0 = (this.legendW2 === undefined || this.legendW2 ? 37 : 20) + 17;
       let lastRight = -1e9, row = 0;
       for (const e of cal) {
         const x = this.xOfT(e.t, L, n) - this.barW / 2;
         if (x < -10 || x > L.plotW + 10) continue;
-        const col = e.imp >= 3 ? th.warn : e.imp === 2 ? th.s4 : th.text3;
-        const text = (e.imp >= 3 ? '★ ' : '') + e.name;
+        const col = !e.rel ? th.text3 : e.imp >= 3 ? th.warn : e.imp === 2 ? th.s4 : th.text3;
+        const text = (e.imp >= 3 && e.rel ? '★ ' : '') + e.name;
         ctx.font = FONT_S;
         const tw = ctx.measureText(text).width + 10;
         const lx = clamp(x - tw / 2, 2, L.plotW - tw - 2);
-        // Flags that would overlap stack into a second row.
+        // Flags that would overlap stack into a second row; a flag also steps down past level labels.
         row = lx < lastRight + 4 ? (row + 1) % 2 : 0;
-        const Y = Y0 + row * 17;
+        let Y = Y0 + row * 17;
+        const hitsLabel = (yy) => (this.lvBoxes || []).some((b) => lx < b[0] + b[2] && lx + tw > b[0] && yy - 13 < b[1] + b[3] && yy + 2 > b[1]);
+        for (let k = 0; k < 4 && hitsLabel(Y); k++) Y += 17;
         lastRight = Math.max(row ? lastRight : -1e9, lx + tw);
-        ctx.strokeStyle = alpha(col, e.t > now ? 0.8 : 0.45);
-        ctx.setLineDash(e.t > now ? [4, 3] : [2, 4]); ctx.lineWidth = 1;
+        const up = e.t > now && e.rel;
+        ctx.strokeStyle = alpha(col, !e.rel ? 0.25 : up ? 0.8 : 0.45);
+        ctx.setLineDash(up ? [4, 3] : [2, 4]); ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, Y + 2); ctx.lineTo(Math.round(x) + 0.5, L.mainH); ctx.stroke();
         ctx.setLineDash([]);
         roundRect(ctx, lx, Y - 13, tw, 15, 4);
-        ctx.fillStyle = alpha(col, e.t > now ? 0.9 : e.t < 0 ? 0.14 : 0.25); ctx.fill();
-        ctx.fillStyle = e.t > now ? '#111' : e.t < 0 ? th.text3 : th.text2; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = alpha(col, up ? 0.9 : !e.rel || e.t < 0 ? 0.12 : 0.25); ctx.fill();
+        ctx.fillStyle = up ? '#111' : !e.rel || e.t < 0 ? th.text3 : th.text2; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText(text, lx + tw / 2, Y - 5.5);
         ctx.textBaseline = 'alphabetic';
-        const detail = e.list.map((x) => x.long + (x.done ? (x.act ? ': ' + x.act + (x.fc ? ' vs ' + x.fc + ' expected' : '') : ': released') : (x.fc ? ', expected ' + x.fc : ''))).join(' · ') + (e.done ? '' : ' · in ' + DTA.fmtHold(Math.max(0, e.t - now)) + ' of market time');
+        const detail = e.list.map((x) => x.long + (x.done ? (x.act ? ': ' + x.act + (x.fc ? ' vs ' + x.fc + ' expected' : '') : ': released') : (x.fc ? ', expected ' + x.fc : ''))).join(' · ') + (e.done ? '' : ' · in ' + DTA.fmtHold(Math.max(0, e.t - now)) + ' of market time') + (e.rel ? '' : ' · little effect on ' + s.sym);
         this.hits.push({ kind: 'cal', box: [lx, Y - 13, tw, 15], text: fmtClock(e.t, false) + ' ' + detail });
       }
     }

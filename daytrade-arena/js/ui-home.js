@@ -167,6 +167,15 @@
     void fmt;
     return box;
   }
+  // Quick-duel blurbs that follow the room's settings.
+  function duelDesc(st) {
+    const n = { 3: 'three', 5: 'five', 7: 'seven' };
+    const secs = (v) => (v >= 60 && v % 60 === 0 ? v / 60 + '-minute' : v + '-second');
+    if (st.duel === 'scalp') return 'Best of ' + (n[st.scalpRounds] || st.scalpRounds) + ' ' + secs(st.scalpSec) + ' rounds, each on a fresh chart, with a capped position size. Most round wins takes it.';
+    if (st.duel === 'target') { const p = Math.round(st.targetPct * 1000) / 10; return 'First trader to make +' + p + '% wins instantly. Lose ' + p + '% and you\'re out.'; }
+    if (st.duel === 'predict') return st.predictRounds + ' rounds. The chart freezes: call up or down for the next ' + st.predictCandles + ' candles and bet 1 to 3 chips. Streaks score bonus points.';
+    return DUEL_TYPES[st.duel].desc;
+  }
   function field(label, control, full) { return el('div.field' + (full ? '.full' : ''), [el('span', label), control]); }
   function select(key, options, st, enabled) {
     const c = DTA.app.client;
@@ -314,7 +323,7 @@
         dt.appendChild(b);
       }
       dt.style.gridTemplateColumns = 'repeat(3, 1fr)';
-      g.appendChild(el('div.full', [dt, el('p.mode-desc', DUEL_TYPES[st.duel].desc)]));
+      g.appendChild(el('div.full', [dt, el('p.mode-desc', duelDesc(st))]));
       if (st.duel === 'predict') {
         g.appendChild(field('Rounds', seg('predictRounds', [[5, '5'], [8, '8'], [10, '10'], [15, '15']], st, E)));
         g.appendChild(field('Candles to call', seg('predictCandles', [[3, '3'], [5, '5'], [8, '8']], st, E)));

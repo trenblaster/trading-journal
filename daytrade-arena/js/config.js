@@ -245,7 +245,7 @@
     race: { id: 'race', name: 'P&L Race', icon: '🏁', desc: 'Everyone trades the same market. The highest account value at the closing bell wins.' },
     elim: { id: 'elim', name: 'Knockout', icon: '🥊', desc: 'Each round, the lowest account gets knocked out. Blow up your account and you\'re out on the spot. Last trader standing wins.' },
     scenario: { id: 'scenario', name: 'Scenario', icon: '🎬', desc: 'Scripted market days: flash crashes, squeezes, earnings gaps and FOMC whipsaws. Read the tape and make money.' },
-    duel: { id: 'duel', name: 'Quick Duels', icon: '⚔️', desc: 'Fast formats: call the next candles, race to a profit target, or play best-of-five scalping rounds.' }
+    duel: { id: 'duel', name: 'Quick Duels', icon: '⚔️', desc: 'Fast formats: call the next candles, race to a profit target, or play best-of scalping rounds.' }
   };
   const DUEL_TYPES = {
     predict: { id: 'predict', name: 'Call It', icon: '🔮', desc: 'The chart freezes. Call up or down for the next few candles and bet 1 to 3 chips. Streaks score bonus points.' },

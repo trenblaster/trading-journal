@@ -84,7 +84,11 @@
       this.askDep = new Map();  // price level → shares taken and not yet refilled
       this.bidDep = new Map();
       this.resting = [];        // players' resting limit orders (engine order objects)
-      this.bars = [];           // [o, h, l, c, v] in ticks; index = 5-second bar number from session start
+      this.bars = [];           // [o, h, l, c, v, buyVol] in ticks; index = 5-second bar number from session start
+      this.big = [];            // large prints for the chart's bubbles: [t, idx, qty, side]
+      this.bigSent = 0;
+      // A "big print" is one order that trades at least this many shares (about 1 print in 150).
+      this.bigThreshold = Math.round(Math.max(def.depth * 3, (def.printSize / market.flowScale) * 8) / 100) * 100;
       this.dirtyFrom = 0;
       this.lastIdx = this.prevCloseIdx;
       this.openIdx = null;
@@ -246,6 +250,12 @@
         idx = nb === null ? null : side > 0 ? Math.max(nb, idx + 1) : Math.min(nb, idx - 1);
         if (idx !== null && idx < 1) idx = null;
       }
+      const done = qty - remaining;
+      if (done >= this.bigThreshold && fills.length) {
+        let n = 0, sx = 0;
+        for (const f of fills) { n += f.qty; sx += f.qty * f.idx; }
+        this.noteBig(t, Math.round(sx / n), done, side);
+      }
       // Aggressive player flow moves the quote (temporary) and fair value (permanent).
       if (pid && qty - remaining > 0) this.impact(side, qty - remaining);
       else if (noise && qty > this.def.depth * 3) this.impact(side, (qty - remaining) * 0.5);
@@ -278,6 +288,14 @@
       if (idx < b[2]) b[2] = idx;
       b[3] = idx;
       b[4] += qty;
+      // Aggressor side for volume delta: buys lift the offer, sells hit the bid; auctions split evenly.
+      b[5] += side > 0 ? qty : side < 0 ? 0 : qty / 2;
+      if (flags & 4) this.noteBig(t, idx, qty, 0);
+    }
+
+    noteBig(t, idx, qty, side) {
+      this.big.push([Math.round(t * 10) / 10, idx, qty, side]);
+      if (this.big.length > 3000) { this.big.splice(0, 1000); this.bigSent = Math.max(0, this.bigSent - 1000); }
     }
 
     barAt(t) {
@@ -285,7 +303,7 @@
       while (this.bars.length <= bi) {
         // Before the opening print, empty bars sit at fair value (not yesterday's close).
         const c = this.openIdx === null ? Math.max(1, Math.round(Math.exp(this.lf) / this.tick)) : this.lastIdx;
-        this.bars.push([c, c, c, c, 0]);
+        this.bars.push([c, c, c, c, 0, 0]);
       }
       if (bi < this.dirtyFrom) this.dirtyFrom = bi;
       return this.bars[bi];
@@ -372,10 +390,12 @@
       // Background prints.
       const mom = this.cPrev === null ? 0 : clamp((c - this.cPrev) / Math.max(0.25, sigma * Math.exp(this.lf) / this.tick), -2.5, 2.5);
       this.cPrev = c;
+      // Order flow leans with the recent move, so volume delta and CVD track price like a real tape.
+      this.momEma = (this.momEma || 0) * 0.85 + mom * 0.15;
       const rate = d.printRate * act * (0.55 + 0.45 * volState) * m.flowScale * (1 + Math.abs(this.flowBias) * 2);
       const n = r.poisson(rate * dt);
       const sizeMult = 1 / m.flowScale;
-      const pBuy = clamp(0.5 + 0.17 * mom + this.flowBias, 0.06, 0.94);
+      const pBuy = clamp(0.5 + 0.12 * mom + 0.3 * this.momEma + this.flowBias, 0.06, 0.94);
       for (let i = 0; i < n; i++) {
         const side = r.chance(pBuy) ? 1 : -1;
         let size = r.lognormal(d.printSize * sizeMult, 0.85);
@@ -471,17 +491,19 @@
       return {
         sym: d.sym, name: d.name, sector: d.sector, cap: d.cap, float: d.float, desc: d.desc, halts: !!d.halts, htb: !!d.htb,
         borrowFee: d.borrowFee || 0, shortInterest: d.shortInterest || 0,
-        tick: this.tick, prev: this.prevCloseIdx, open: this.openIdx, bars: this.bars.map((b) => b.slice()),
+        tick: this.tick, prev: this.prevCloseIdx, open: this.openIdx, bars: this.bars.map((b) => [b[0], b[1], b[2], b[3], b[4], Math.round(b[5])]),
         last: this.lastIdx, bid: this.bestBid(t), ask: this.bestAsk(t), hi: this.hiIdx, lo: this.loIdx,
         vol: this.volume, pv: Math.round(this.pv), halted: this.halted, haltUntil: this.haltUntil, haltReason: this.haltReason,
-        haltList: this.halts.map((h) => h.slice()), noLocate: this.noLocate
+        haltList: this.halts.map((h) => h.slice()), noLocate: this.noLocate, big: this.big.slice(-1500), bigThreshold: this.bigThreshold
       };
     }
 
     // What changed since the last delta: quote, stats and the bars from the first dirty one.
     delta(t) {
       const from = Math.min(this.dirtyFrom, Math.max(0, this.bars.length - 1));
-      const out = [this.lastIdx, this.bestBid(t), this.bestAsk(t), this.volume, Math.round(this.pv), this.halted ? 1 : 0, from, this.bars.slice(from).map((b) => b.slice()), this.hiIdx, this.loIdx, this.openIdx];
+      const big = this.big.length > this.bigSent ? this.big.slice(this.bigSent) : null;
+      this.bigSent = this.big.length;
+      const out = [this.lastIdx, this.bestBid(t), this.bestAsk(t), this.volume, Math.round(this.pv), this.halted ? 1 : 0, from, this.bars.slice(from).map((b) => [b[0], b[1], b[2], b[3], b[4], Math.round(b[5])]), this.hiIdx, this.loIdx, this.openIdx, big];
       this.dirtyFrom = Math.max(0, this.bars.length - 1);
       return out;
     }

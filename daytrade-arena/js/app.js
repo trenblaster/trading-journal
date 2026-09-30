@@ -210,6 +210,7 @@
     else if (k === '+' || k === '=') G.qtyStep(1);
     else if (k === '-' || k === '_') G.qtyStep(-1);
     else if (k === ' ') { G.chart().resetView(); G.ladder().recenter(); }
+    else if (k === 'g' || k === 'G') G.toggleGrid();
     else if (k === 'h' || k === 'H') G.chart().setTool('hline');
     else if (k === 't' || k === 'T') G.chart().setTool('trend');
     else if (k === 'Delete' || k === 'Backspace') handled = G.chart().deleteSelected();

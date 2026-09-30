@@ -500,6 +500,120 @@
     if (f > 0.002) { ctx.strokeStyle = col; ctx.beginPath(); ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2); ctx.stroke(); }
   }
 
+  // ---------- ranking race ----------
+  // Horizontal bars, one per trader, showing return at time T. Rows glide to their new rank as T moves.
+  // Bar colour is the trader's identity colour; the value sits at the bar end in text colour.
+  class RankRace {
+    // env: {hist: {pid: [[t, eq]]}, player(pid) -> {name, avatar, color}, startCash(pid), start, end, me}
+    constructor(canvas, env) {
+      this.cv = canvas; this.env = env; this.th = DTA.chartTheme(); this.t = env.start; this.rows = new Map();
+      let lo = 0, hi = 0;
+      for (const id in env.hist) for (const [, eq] of env.hist[id]) { const r = eq / env.startCash(id) - 1; lo = Math.min(lo, r); hi = Math.max(hi, r); }
+      const pad = Math.max(0.002, (hi - lo) * 0.08);
+      this.lo = lo < 0 ? lo - pad : 0; this.hi = hi > 0 ? hi + pad : 0.001;
+    }
+    valueAt(id, t) {
+      const h = this.env.hist[id];
+      if (!h || !h.length) return 0;
+      if (t <= h[0][0]) return h[0][1];
+      let lo = 0, hi = h.length - 1;
+      while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (h[mid][0] <= t) lo = mid; else hi = mid - 1; }
+      const a = h[lo], b = h[Math.min(h.length - 1, lo + 1)];
+      if (b[0] === a[0]) return a[1];
+      return a[1] + (b[1] - a[1]) * clamp((t - a[0]) / (b[0] - a[0]), 0, 1);
+    }
+    render() {
+      const cv = this.cv;
+      if (cv.offsetParent === null) return false;
+      const { ctx, w, h } = fitCanvas(cv);
+      const th = this.th;
+      ctx.fillStyle = th.bg; ctx.fillRect(0, 0, w, h);
+      const ids = Object.keys(this.env.hist).filter((id) => this.env.player(id));
+      if (!ids.length) return false;
+      const vals = ids.map((id) => ({ id, r: this.valueAt(id, this.t) / this.env.startCash(id) - 1 })).sort((a, b) => b.r - a.r);
+      const labelW = Math.min(190, w * 0.34), valW = 70;
+      const L = labelW + 8, R = w - valW;
+      const top = 14, bottom = h - 34;
+      const rowH = Math.min(46, (bottom - top) / Math.max(1, ids.length));
+      const x = (r) => L + ((r - this.lo) / (this.hi - this.lo)) * (R - L);
+      let moving = false;
+      vals.forEach((v, k) => {
+        const row = this.rows.get(v.id) || { y: k };
+        row.y += (k - row.y) * 0.18;
+        if (Math.abs(row.y - k) > 0.01) moving = true; else row.y = k;
+        this.rows.set(v.id, row);
+      });
+      // Zero line and a few gridlines.
+      ctx.strokeStyle = th.grid; ctx.lineWidth = 1; ctx.font = FONT; ctx.fillStyle = th.text3; ctx.textAlign = 'center';
+      const step = niceStepPct(this.hi - this.lo);
+      ctx.beginPath();
+      for (let g = Math.ceil(this.lo / step) * step; g <= this.hi + 1e-9; g += step) { const gx = Math.round(x(g)) + 0.5; ctx.moveTo(gx, top - 4); ctx.lineTo(gx, bottom + 4); ctx.fillText(fmtPct(g, step < 0.01 ? 1 : 0), gx, h - 18); }
+      ctx.stroke();
+      ctx.strokeStyle = th.axis; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(Math.round(x(0)) + 0.5, top - 6); ctx.lineTo(Math.round(x(0)) + 0.5, bottom + 6); ctx.stroke();
+      for (const v of vals) {
+        const p = this.env.player(v.id);
+        const row = this.rows.get(v.id);
+        const cy = top + row.y * rowH + rowH / 2;
+        const bh = Math.max(6, rowH - 14);
+        const x0 = x(0), x1 = x(v.r);
+        ctx.fillStyle = p.color;
+        roundRect(ctx, Math.min(x0, x1), cy - bh / 2, Math.max(2, Math.abs(x1 - x0)), bh, 4); ctx.fill();
+        ctx.textBaseline = 'middle';
+        const label = p.name + (v.id === this.env.me ? ' (you)' : '');
+        ctx.font = v.id === this.env.me ? FONT_B : FONT;
+        const nw = ctx.measureText(label).width;
+        ctx.fillStyle = th.text; ctx.textAlign = 'right';
+        ctx.fillText(label, L - 10, cy);
+        ctx.font = '16px ' + EMOJI;
+        ctx.fillText(p.avatar, L - 10 - nw - 8, cy);
+        ctx.fillStyle = th.text2; ctx.textAlign = v.r >= 0 ? 'left' : 'right';
+        ctx.fillText(fmtPct(v.r, 2), v.r >= 0 ? x1 + 6 : x1 - 6, cy);
+        ctx.textBaseline = 'alphabetic';
+      }
+      ctx.font = '700 22px system-ui, sans-serif'; ctx.fillStyle = alpha(th.text, 0.35); ctx.textAlign = 'right';
+      ctx.fillText(fmtClock(this.t, false), w - 10, bottom - 4);
+      return moving;
+    }
+  }
+
+  // Simple vertical bars with sign colours and a value on each bar end (values are few, so all are labelled).
+  function drawBars(canvas, items, opts) {
+    if (canvas.offsetParent === null) return;
+    const { ctx, w, h } = fitCanvas(canvas);
+    const th = DTA.chartTheme();
+    ctx.fillStyle = th.bg; ctx.fillRect(0, 0, w, h);
+    opts = opts || {};
+    if (!items.length) { ctx.fillStyle = th.text3; ctx.font = FONT; ctx.textAlign = 'center'; ctx.fillText(opts.empty || 'Nothing to show', w / 2, h / 2); return; }
+    let lo = 0, hi = 0;
+    for (const it of items) { lo = Math.min(lo, it.v); hi = Math.max(hi, it.v); }
+    if (hi === lo) hi = lo + 1;
+    const pad = (hi - lo) * 0.15;
+    const top = 22, bottom = h - 30, L = 56, R = w - 12;
+    const y = (v) => top + ((hi + (hi > 0 ? pad : 0) - v) / (hi + (hi > 0 ? pad : 0) - (lo - (lo < 0 ? pad : 0)))) * (bottom - top);
+    const slot = (R - L) / items.length;
+    const bw = Math.min(64, slot * 0.62);
+    ctx.font = FONT;
+    // grid
+    const span = hi - lo, stepRaw = span / 4, mag = Math.pow(10, Math.floor(Math.log10(stepRaw || 1)));
+    const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((sv) => sv >= stepRaw) || mag * 10;
+    ctx.strokeStyle = th.grid; ctx.fillStyle = th.text3; ctx.textAlign = 'right'; ctx.beginPath();
+    for (let g = Math.ceil((lo - pad) / step) * step; g <= hi + pad; g += step) { const gy = Math.round(y(g)) + 0.5; ctx.moveTo(L, gy); ctx.lineTo(R, gy); ctx.fillText(opts.fmtAxis ? opts.fmtAxis(g) : String(g), L - 6, gy + 4); }
+    ctx.stroke();
+    ctx.strokeStyle = th.axis; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(L, Math.round(y(0)) + 0.5); ctx.lineTo(R, Math.round(y(0)) + 0.5); ctx.stroke();
+    items.forEach((it, k) => {
+      const cx = L + slot * k + slot / 2;
+      const y0 = y(0), y1 = y(it.v);
+      ctx.fillStyle = it.color || (it.v >= 0 ? th.up : th.down);
+      roundRect(ctx, cx - bw / 2, Math.min(y0, y1), bw, Math.max(1, Math.abs(y1 - y0)), 4); ctx.fill();
+      ctx.fillStyle = th.text2; ctx.textAlign = 'center';
+      if (opts.fmtVal && it.v !== 0) ctx.fillText(opts.fmtVal(it.v), cx, it.v >= 0 ? y1 - 6 : y1 + 14);
+      ctx.fillStyle = th.text3;
+      ctx.fillText(it.label, cx, h - 12);
+    });
+  }
+
+  DTA.RankRace = RankRace;
+  DTA.drawBars = drawBars;
   DTA.Ladder = Ladder;
   DTA.Tape = Tape;
   DTA.Depth = Depth;

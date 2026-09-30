@@ -61,7 +61,7 @@
       this.o = Object.assign({ interactive: true, replay: false }, opts || {});
       this.tf = 60;
       this.type = 'candles';
-      this.show = { vol: true, vwap: true, vwapBands: false, ema9: true, ema20: true, ema50: false, bb: false, vp: true, rsi: false, macd: false, rivals: true, fills: true, news: true };
+      this.show = { vol: true, vwap: true, vwapBands: false, ema9: true, ema20: true, ema50: false, bb: false, vp: true, rsi: false, macd: false, delta: false, cvd: false, heat: false, bubbles: true, rivals: true, fills: true, news: true };
       this.barW = 9;
       this.right = null;       // bar index at the right edge; null = follow live
       this.yMan = null;        // manual price range when the axis was dragged
@@ -98,7 +98,7 @@
       if (!s) return null;
       const key = (s.uid || s.sym) + ':' + this.tf;
       if (key !== this.symKey) { this.symKey = key; this.agg = new ind.Agg(this.tf); this.cache.key = ''; this.yCur = null; this.animLast = null; }
-      const v = key + ':' + s.version + ':' + this.type + ':' + (this.replayT || '') + ':' + this.show.rsi + this.show.macd;
+      const v = key + ':' + s.version + ':' + this.type + ':' + (this.replayT || '') + ':' + this.show.rsi + this.show.macd + this.show.cvd;
       if (this.cache.key === v) return this.cache;
       // Host deltas only ever rewrite the last bar or append, so rebuilding from the last seen bar is enough.
       let bars = this.agg.update(s.bars, s.tick, this.env.start());
@@ -109,7 +109,7 @@
       const cl = bars.map((b) => b.c);
       const calc = {
         vwap: ind.vwap(bars), ema9: ind.ema(cl, 9), ema20: ind.ema(cl, 20), ema50: ind.ema(cl, 50), bb: ind.bollinger(cl, 20, 2),
-        rsi: this.show.rsi ? ind.rsi(cl, 14) : null, macd: this.show.macd ? ind.macd(cl) : null
+        rsi: this.show.rsi ? ind.rsi(cl, 14) : null, macd: this.show.macd ? ind.macd(cl) : null, cvd: this.show.cvd ? ind.cvd(bars) : null
       };
       this.cache = { key: v, bars, ha: this.type === 'heikin' ? ind.heikinAshi(bars) : null, calc, sym: s };
       return this.cache;
@@ -118,10 +118,12 @@
     // ---------- geometry ----------
     computeLayout(w, h) {
       const subs = [];
+      if (this.show.delta) subs.push('delta');
+      if (this.show.cvd) subs.push('cvd');
       if (this.show.rsi) subs.push('rsi');
       if (this.show.macd) subs.push('macd');
       const plotW = Math.max(40, w - AXIS_W);
-      const subH = subs.length ? Math.max(56, Math.min(110, h * 0.17)) : 0;
+      const subH = subs.length ? Math.max(50, Math.min(110, (h * (subs.length > 2 ? 0.42 : 0.3)) / subs.length)) : 0;
       const mainH = Math.max(80, h - TIME_H - subH * subs.length);
       const panes = [{ id: 'main', y: 0, h: mainH }];
       let y = mainH;
@@ -176,6 +178,7 @@
       ctx.save();
       ctx.beginPath(); ctx.rect(0, 0, L.plotW, L.mainH); ctx.clip();
       this.drawGrid(ctx, L, bars, i0, i1, n);
+      if (this.show.heat) this.drawHeat(ctx, L, s, i0, i1, n);
       this.drawHalts(ctx, L, n, s);
       if (this.show.vp) this.drawProfile(ctx, L, raw, s);
       if (this.show.vol) this.drawVolume(ctx, L, raw, i0, i1, n, volH);
@@ -188,6 +191,7 @@
       if (this.show.ema20) this.drawLine(ctx, L, c.ema20, th.s7, i0, i1, n, 1.25);
       if (this.show.ema9) this.drawLine(ctx, L, c.ema9, th.s1, i0, i1, n, 1.25);
       if (this.show.vwap) this.drawLine(ctx, L, c.vwap.v, th.s4, i0, i1, n, 2);
+      if (this.show.bubbles) this.drawBubbles(ctx, L, n, s);
       this.drawDrawings(ctx, L, n, s);
       if (this.show.rivals) this.drawRivalFills(ctx, L, n, s);
       if (this.show.fills) this.drawMyFills(ctx, L, n, s);
@@ -205,6 +209,7 @@
       this.drawTimeAxis(ctx, L, bars, i0, i1, n);
       this.drawCrosshair(ctx, L, bars, n, s);
       this.drawLegend(ctx, L, bars, raw, c, n, s);
+      if (this.show.heat && s.heat && s.heat.length) this.drawHeatLegend(ctx, L);
       if (s.halted && this.replayT === null) this.drawHaltBadge(ctx, L, s);
     }
 
@@ -266,6 +271,92 @@
         ctx.restore();
         ctx.fillStyle = th.warn; ctx.font = FONT_B; ctx.textAlign = 'left';
         ctx.fillText('HALT', x0 + 4, 30);
+      }
+    }
+
+    // Bookmap-style resting liquidity: for each candle column, the average size resting at each price
+    // level while that candle formed. One hue; brighter means more size waiting there.
+    drawHeat(ctx, L, s, i0, i1, n) {
+      const H = s.heat;
+      if (!H || !H.length) return;
+      const th = this.th, start = this.env.start(), tf = this.tf, tick = s.tick;
+      const r = this.yRange;
+      const pxPerTick = ((r.bot - r.top) / (r.max - r.min)) * tick;
+      const grp = Math.max(1, Math.ceil(2.5 / Math.max(1e-6, pxPerTick)));
+      const t0 = start + i0 * tf;
+      let lo = 0, hi = H.length;
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (H[mid][0] < t0) lo = mid + 1; else hi = mid; }
+      let k = Math.max(0, lo - 1);
+      const cells = [];
+      let mx = 0;
+      let prev = lo > 0 ? H[lo - 1] : null;
+      const minIdx = Math.floor(r.min / tick), maxIdx = Math.ceil(r.max / tick);
+      for (let i = i0; i <= i1; i++) {
+        const ct0 = start + i * tf, ct1 = ct0 + tf;
+        const acc = new Map();
+        let cnt = 0;
+        while (k < H.length && H[k][0] < ct1) {
+          if (H[k][0] >= ct0) { this.accHeat(acc, H[k], grp, minIdx, maxIdx); cnt++; }
+          prev = H[k];
+          k++;
+        }
+        if (!cnt && prev && ct0 - prev[0] < tf * 4 + 60) { this.accHeat(acc, prev, grp, minIdx, maxIdx); cnt = 1; }
+        if (!cnt) continue;
+        for (const [key, v] of acc) { const a = v / cnt; if (a > mx) mx = a; cells.push(i, key, a); }
+      }
+      if (!mx) return;
+      const bw = Math.max(1, this.barW);
+      const col = th.s1;
+      for (let c = 0; c < cells.length; c += 3) {
+        const i = cells[c], key = cells[c + 1], v = cells[c + 2] / mx;
+        if (v < 0.04) continue;
+        const x = this.xOf(i, L, n) - bw / 2;
+        const yTop = this.yOf((key + 1) * grp * tick - tick / 2), yBot = this.yOf(key * grp * tick - tick / 2);
+        const a = 0.05 + 0.62 * Math.pow(v, 0.65);
+        ctx.fillStyle = v > 0.82 ? alpha('#9cc4f2', a) : alpha(col, a);
+        ctx.fillRect(x, yTop, bw + 0.5, Math.max(1, yBot - yTop));
+      }
+    }
+    // Heatmap scale, drawn last so candles never cover it.
+    drawHeatLegend(ctx, L) {
+      const th = this.th, col = th.s1;
+      const lx = L.plotW - 172, ly = 8;
+      ctx.fillStyle = alpha(th.panel, 0.9);
+      roundRect(ctx, lx - 8, ly - 4, 164, 32, 6); ctx.fill();
+      const gr = ctx.createLinearGradient(lx, 0, lx + 148, 0);
+      gr.addColorStop(0, alpha(col, 0.08)); gr.addColorStop(0.8, alpha(col, 0.67)); gr.addColorStop(1, alpha('#9cc4f2', 0.7));
+      ctx.fillStyle = gr; ctx.fillRect(lx, ly + 2, 148, 6);
+      ctx.fillStyle = th.text3; ctx.font = FONT; ctx.textAlign = 'left';
+      ctx.fillText('Resting size: less', lx, ly + 22);
+      ctx.textAlign = 'right'; ctx.fillText('more', lx + 148, ly + 22);
+    }
+    accHeat(acc, snap, grp, minIdx, maxIdx) {
+      const [, b0, bs, a0, as] = snap;
+      for (let j = 0; j < bs.length; j++) { const idx = b0 - j; if (idx < minIdx || idx > maxIdx) continue; const key = Math.floor(idx / grp); acc.set(key, (acc.get(key) || 0) + bs[j]); }
+      for (let j = 0; j < as.length; j++) { const idx = a0 + j; if (idx < minIdx || idx > maxIdx) continue; const key = Math.floor(idx / grp); acc.set(key, (acc.get(key) || 0) + as[j]); }
+    }
+
+    // Large single orders on the tape, sized by shares traded.
+    drawBubbles(ctx, L, n, s) {
+      const list = s.big;
+      if (!list || !list.length) return;
+      const th = this.th, start = this.env.start();
+      const thr = s.bigThreshold || 1;
+      const x0 = start + (this.rightIndex(n) - L.plotW / this.barW - 2) * this.tf;
+      for (let k = list.length - 1; k >= 0; k--) {
+        const [t, idx, qty, side] = list[k];
+        if (t < x0) break;
+        if (this.replayT !== null && t > this.replayT) continue;
+        const i = Math.floor((t - start) / this.tf);
+        const x = this.xOf(i, L, n);
+        if (x < -20 || x > L.plotW + 20) continue;
+        const y = this.yOf(idx * s.tick);
+        const rad = clamp(4 + 6 * Math.sqrt(Math.max(0, qty / thr - 0.6)), 5, 22);
+        const col = side > 0 ? th.up : side < 0 ? th.down : th.warn;
+        ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2);
+        ctx.fillStyle = alpha(col, 0.22); ctx.fill();
+        ctx.lineWidth = 1.25; ctx.strokeStyle = alpha(col, 0.85); ctx.stroke();
+        this.hits.push({ kind: 'big', x, y, r: rad, text: 'Big print ' + fmtQty(qty) + ' @ ' + fmtPrice(idx * s.tick, s.tick) + (side > 0 ? ' · buyer lifted the offer' : side < 0 ? ' · seller hit the bid' : ' · auction') + ' · ' + fmtClock(t) });
       }
     }
 
@@ -621,6 +712,58 @@
         ctx.beginPath(); ctx.moveTo(0, 0.5); ctx.lineTo(L.w, 0.5); ctx.stroke();
         ctx.beginPath(); ctx.rect(0, 0, L.plotW, pane.h); ctx.clip();
         const hgt = pane.h;
+        if (pane.id === 'delta') {
+          const raw = this.cache.bars;
+          let mx = 1;
+          for (let i = i0; i <= i1; i++) { const d = raw[i] ? Math.abs(raw[i].d || 0) : 0; if (d > mx) mx = d; }
+          const y0 = hgt / 2;
+          ctx.strokeStyle = th.grid; ctx.beginPath(); ctx.moveTo(0, Math.round(y0) + 0.5); ctx.lineTo(L.plotW, Math.round(y0) + 0.5); ctx.stroke();
+          const bw = Math.max(1, this.barW * 0.7);
+          for (let i = i0; i <= i1; i++) {
+            const d = raw[i] ? raw[i].d || 0 : 0;
+            if (!d) continue;
+            const hh = (Math.abs(d) / mx) * (hgt / 2 - 8);
+            ctx.fillStyle = alpha(d > 0 ? th.up : th.down, 0.75);
+            ctx.fillRect(this.xOf(i, L, n) - bw / 2, d > 0 ? y0 - hh : y0, bw, Math.max(1, hh));
+          }
+          ctx.restore();
+          const m = this.mouse;
+          let hi2 = n - 1;
+          if (m.in && m.x < L.plotW) hi2 = clamp(Math.round(this.iOf(m.x, L, n)), 0, n - 1);
+          const dv = raw[hi2] ? raw[hi2].d || 0 : 0;
+          ctx.fillStyle = th.text2; ctx.font = FONT; ctx.textAlign = 'left';
+          ctx.fillText('Volume delta (buys − sells)  ' + (dv >= 0 ? '+' : DTA.MINUS) + fmtQty(Math.abs(Math.round(dv))), 8, pane.y + 13);
+          continue;
+        }
+        if (pane.id === 'cvd' && c.cvd) {
+          let lo = 0, hi = 0;
+          for (let i = i0; i <= i1; i++) { const v = c.cvd[i]; if (v < lo) lo = v; if (v > hi) hi = v; }
+          const span = Math.max(1, hi - lo);
+          lo -= span * 0.1; hi += span * 0.1;
+          const y = (v) => 6 + ((hi - v) / (hi - lo)) * (hgt - 12);
+          const yz = y(0);
+          ctx.strokeStyle = th.grid; ctx.beginPath(); ctx.moveTo(0, Math.round(yz) + 0.5); ctx.lineTo(L.plotW, Math.round(yz) + 0.5); ctx.stroke();
+          // Area toward zero, green above and red below.
+          for (const sign of [1, -1]) {
+            ctx.save();
+            ctx.beginPath(); ctx.rect(0, sign > 0 ? 0 : yz, L.plotW, sign > 0 ? yz : hgt - yz); ctx.clip();
+            ctx.beginPath();
+            ctx.moveTo(this.xOf(i0, L, n), yz);
+            for (let i = i0; i <= i1; i++) ctx.lineTo(this.xOf(i, L, n), y(c.cvd[i]));
+            ctx.lineTo(this.xOf(i1, L, n), yz);
+            ctx.closePath();
+            ctx.fillStyle = alpha(sign > 0 ? th.up : th.down, 0.18); ctx.fill();
+            ctx.restore();
+          }
+          ctx.strokeStyle = th.text2; ctx.lineWidth = 1.5; ctx.beginPath();
+          for (let i = i0; i <= i1; i++) { const xx = this.xOf(i, L, n), yy = y(c.cvd[i]); if (i === i0) ctx.moveTo(xx, yy); else ctx.lineTo(xx, yy); }
+          ctx.stroke();
+          ctx.restore();
+          const lv = c.cvd[n - 1] || 0;
+          ctx.fillStyle = th.text2; ctx.font = FONT; ctx.textAlign = 'left';
+          ctx.fillText('Cumulative volume delta  ' + (lv >= 0 ? '+' : DTA.MINUS) + fmtQty(Math.abs(Math.round(lv))), 8, pane.y + 13);
+          continue;
+        }
         if (pane.id === 'rsi' && c.rsi) {
           const y = (v) => 6 + (100 - v) / 100 * (hgt - 12);
           ctx.fillStyle = alpha(th.s7, 0.06); ctx.fillRect(0, y(70), L.plotW, y(30) - y(70));
@@ -781,6 +924,12 @@
       }
       ctx.fillStyle = th.text3; ctx.fillText('V', x, y); x += 10;
       ctx.fillStyle = th.text2; const vt = fmtQty(b.v); ctx.fillText(vt, x, y); x += ctx.measureText(vt).width + 8;
+      if (b.d !== undefined && b.v) {
+        ctx.fillStyle = th.text3; ctx.fillText('Δ', x, y); x += 10;
+        ctx.fillStyle = b.d >= 0 ? th.up : th.down;
+        const dt = (b.d >= 0 ? '+' : DTA.MINUS) + fmtQty(Math.abs(Math.round(b.d)));
+        ctx.fillText(dt, x, y); x += ctx.measureText(dt).width + 8;
+      }
       ctx.fillStyle = ch >= 0 ? th.up : th.down;
       ctx.fillText((ch >= 0 ? '+' : DTA.MINUS) + Math.abs(ch).toFixed(DTA.decimalsForTick(s.tick)) + ' (' + DTA.fmtPct(ch / prev) + ')', x, y);
       // Indicator legend: swatch + name + value (text stays in text colours).
@@ -802,7 +951,7 @@
       void ly;
       // Hover tooltip for markers.
       if (m.in && !this.drag) {
-        const hit = this.hitAt(m.x, m.y, ['fill', 'rival', 'news', 'cancel']);
+        const hit = this.hitAt(m.x, m.y, ['fill', 'rival', 'news', 'cancel', 'big']);
         if (hit) this.tooltip(ctx, L, m.x, m.y, hit.text);
       }
     }
@@ -950,7 +1099,8 @@
       const cv = this.cv;
       cv.addEventListener('pointermove', (e) => this.onMove(e));
       cv.addEventListener('pointerdown', (e) => this.onDown(e));
-      window.addEventListener('pointerup', (e) => this.onUp(e));
+      this._onUp = (e) => this.onUp(e);
+      window.addEventListener('pointerup', this._onUp);
       cv.addEventListener('pointerleave', () => { this.mouse.in = false; this.dirty = true; });
       cv.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
       cv.addEventListener('dblclick', (e) => { const p = this.pos(e); if (this.layout && p.x > this.layout.plotW) this.yMan = null; else this.resetView(); });
@@ -1089,6 +1239,8 @@
 
     // Replay helpers.
     setReplay(t) { this.replayT = t; this.cache.key = ''; this.dirty = true; }
+
+    destroy() { if (this._onUp) window.removeEventListener('pointerup', this._onUp); this._onUp = null; }
   }
 
   function touchDist(e) { const a = e.touches[0], b = e.touches[1]; return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1; }

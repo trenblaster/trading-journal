@@ -107,6 +107,8 @@
     const key = JSON.stringify(st) + isHost;
     if (key !== lastSettingsKey) { lastSettingsKey = key; renderSettings(st, isHost); }
     $('#settingsNote').textContent = isHost ? 'You are the host' : 'The host picks the game';
+    const tipBox = $('#lobbyTip');
+    if (tipBox && !tipBox.textContent) tipBox.textContent = '💡 ' + DTA.TIPS[Math.floor(Math.random() * DTA.TIPS.length)];
     // Footer.
     const humans = seated.filter((p) => !p.isBot);
     const ready = humans.filter((p) => p.ready || p.isHost).length;

@@ -37,6 +37,7 @@
       b.classList.toggle('active', b.dataset.rtab === 'stand');
       if (b.dataset.rtab === 'replay') b.hidden = !r.singleMarket;
       if (b.dataset.rtab === 'race') b.hidden = !r.singleMarket;
+      if (b.dataset.rtab === 'charts') b.hidden = !r.singleMarket && !(r.rows.find((x) => x.id === me) || { trades: 0 }).trades;
     }
     renderTab();
     ui.show('results');
@@ -72,11 +73,13 @@
     const body = $('#resultsBody');
     stopReplay();
     body.innerHTML = '';
+    if (R.replay && R.replay.chart) { R.replay.chart.destroy(); R.replay = null; }
     const r = R.r;
     if (!r) return;
     if (R.tab === 'stand') body.appendChild(standings(r));
     else if (R.tab === 'awards') body.appendChild(awardsView(r));
     else if (R.tab === 'race') body.appendChild(raceView(r));
+    else if (R.tab === 'charts') body.appendChild(chartsView(r));
     else if (R.tab === 'replay') body.appendChild(replayView(r));
     else if (R.tab === 'trips') body.appendChild(tripsView(r));
     else body.appendChild(exportView(r));
@@ -158,6 +161,58 @@
     return panel;
   }
 
+  // ---------- charts ----------
+  function chartsView(r) {
+    const wrap = el('div.charts-grid');
+    const me = r.rows.find((x) => x.id === C().me);
+    const players = new Map(r.rows.map((x) => [x.id, { name: x.name, avatar: x.avatar, color: x.color }]));
+    if (r.singleMarket && Object.keys(r.eqHist).length) {
+      const cv = el('canvas');
+      const play = el('button.btn.primary.small', { type: 'button' }, '▶ Replay the ranking');
+      const range = el('input', { type: 'range', min: r.start, max: r.end, step: 1, value: r.end, 'aria-label': 'Ranking time' });
+      wrap.appendChild(el('div.res-panel.wide', [el('div.ph', [el('h3', 'Ranking race'), el('span.muted.small', 'Return on starting cash at each moment of the session'), play]), el('div.chart-box.tall', cv), el('div.replay-ctl', [range])]));
+      requestAnimationFrame(() => {
+        const rr = new DTA.RankRace(cv, { hist: r.eqHist, player: (id) => players.get(id), startCash: (id) => { const x = r.rows.find((y) => y.id === id); return x ? x.start : r.settings.startCash; }, start: r.start, end: r.end, me: C().me });
+        rr.t = r.end;
+        let playing = false, last = 0;
+        const speed = (r.end - r.start) / 14;
+        range.addEventListener('input', () => { rr.t = +range.value; });
+        play.addEventListener('click', () => { playing = !playing; play.textContent = playing ? '⏸ Pause' : '▶ Replay the ranking'; if (playing && rr.t >= r.end - 1) rr.t = r.start; last = performance.now(); });
+        const loop = (now) => {
+          if (!cv.isConnected) return;
+          if (playing) { rr.t = Math.min(r.end, rr.t + ((now - last) / 1000) * speed); range.value = rr.t; if (rr.t >= r.end) { playing = false; play.textContent = '▶ Replay the ranking'; } }
+          last = now;
+          rr.render();
+          requestAnimationFrame(loop);
+        };
+        requestAnimationFrame(loop);
+      });
+    }
+    if (me && me.tripList.length) {
+      const bySym = {};
+      for (const t of me.tripList) bySym[t.sym] = (bySym[t.sym] || 0) + t.pnl;
+      const items = Object.entries(bySym).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({ label: k, v }));
+      const cv1 = el('canvas');
+      wrap.appendChild(el('div.res-panel', [el('div.ph', [el('h3', 'Your P&L by symbol'), el('span.muted.small', 'Net of commissions and borrow')]), el('div.chart-box', cv1)]));
+      // Histogram of trade results.
+      const pnls = me.tripList.map((t) => t.pnl);
+      const lo = Math.min(...pnls), hi = Math.max(...pnls);
+      const nb = Math.min(12, Math.max(4, Math.ceil(Math.sqrt(pnls.length) * 2)));
+      const width = (hi - lo) / nb || 1;
+      const bins = new Array(nb).fill(0);
+      for (const v of pnls) bins[Math.min(nb - 1, Math.floor((v - lo) / width))]++;
+      const th = DTA.chartTheme();
+      const items2 = bins.map((cnt, k) => { const mid = lo + (k + 0.5) * width; return { label: fmtSignedMoney(mid, 0), v: cnt, color: mid >= 0 ? th.up : th.down }; });
+      const cv2 = el('canvas');
+      wrap.appendChild(el('div.res-panel', [el('div.ph', [el('h3', 'Your trade results'), el('span.muted.small', pnls.length + ' round trips, grouped by P&L')]), el('div.chart-box', cv2)]));
+      requestAnimationFrame(() => {
+        DTA.drawBars(cv1, items, { fmtVal: (v) => fmtSignedMoney(v, 0), fmtAxis: (v) => fmtSignedMoney(v, 0) });
+        DTA.drawBars(cv2, items2, { fmtVal: (v) => String(v), fmtAxis: (v) => (Number.isInteger(v) ? String(v) : '') });
+      });
+    } else wrap.appendChild(el('div.res-panel.wide', el('div.empty', 'Close some trades to see your P&L by symbol and the spread of your results.')));
+    return wrap;
+  }
+
   // ---------- replay ----------
   function replayView(r) {
     const g = C().game;
@@ -220,7 +275,12 @@
     });
     return panel;
   }
-  function stopReplay() { R.playing = false; if (R.timer) cancelAnimationFrame(R.timer); R.timer = null; }
+  function stopReplay() {
+    R.playing = false;
+    if (R.timer) cancelAnimationFrame(R.timer);
+    R.timer = null;
+    if (R.replay && R.replay.chart && !R.replay.chart.cv.isConnected) { R.replay.chart.destroy(); R.replay = null; }
+  }
 
   function tripsView(r) {
     const me = r.rows.find((x) => x.id === C().me);

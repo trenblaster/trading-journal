@@ -297,7 +297,7 @@
     ['R', 'Reverse position'], ['C', 'Cancel orders on this symbol'],
     ['1–6', 'Switch symbol'], ['[ / ]', 'Timeframe down / up'],
     ['+ / −', 'Change ticket size'], ['Space', 'Recenter chart and ladder'],
-    ['H', 'Horizontal line tool'], ['T', 'Trend line tool'], ['Esc', 'Cancel drawing / close dialogs'],
+    ['G', 'Grid of every chart'], ['H', 'Horizontal line tool'], ['T', 'Trend line tool'], ['Esc', 'Cancel drawing / close dialogs'],
     ['Enter', 'Chat'], ['?', 'This help']
   ];
 

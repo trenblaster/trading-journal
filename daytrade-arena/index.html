@@ -109,6 +109,7 @@
     </div>
   </div>
   <footer class="lobby-foot">
+    <span class="muted small lobby-tip" id="lobbyTip"></span>
     <span class="muted" id="readyNote"></span>
     <button class="btn big" id="btnReady">I'm ready</button>
     <button class="btn primary big" id="btnStart">Start match</button>
@@ -181,9 +182,11 @@
             <div class="dropdown" id="indMenu" hidden></div>
           </div>
           <div class="tb-group" id="toolGroup" role="group" aria-label="Drawing tools"></div>
+          <button class="btn small" id="btnGrid" title="Show every symbol at once (G)" aria-pressed="false">⊞ Grid</button>
         </div>
         <div class="chart-wrap">
           <canvas id="chart" aria-label="Price chart"></canvas>
+          <div class="chart-grid" id="chartGrid" hidden></div>
           <button class="btn small live-btn" id="btnLive" hidden>Back to live ⟶</button>
           <div class="halt-banner" id="haltBanner" hidden></div>
           <div class="quick-bar" id="quickBar">
@@ -256,6 +259,7 @@
     <button class="tab active" data-rtab="stand">Standings</button>
     <button class="tab" data-rtab="awards">Awards</button>
     <button class="tab" data-rtab="race">Equity race</button>
+    <button class="tab" data-rtab="charts">Charts</button>
     <button class="tab" data-rtab="replay">Replay</button>
     <button class="tab" data-rtab="trips">My trades</button>
     <button class="tab" data-rtab="export">Export</button>

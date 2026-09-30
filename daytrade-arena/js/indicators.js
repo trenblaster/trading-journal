@@ -13,15 +13,16 @@
     out.length = Math.floor(i / k);
     for (; i < base.length; i += k) {
       const b0 = base[i];
-      let o = b0[0], h = b0[1], l = b0[2], c = b0[3], v = b0[4];
+      let o = b0[0], h = b0[1], l = b0[2], c = b0[3], v = b0[4], bv = b0[5] || 0;
       const end = Math.min(base.length, i + k);
       for (let j = i + 1; j < end; j++) {
         const b = base[j];
         if (b[1] > h) h = b[1];
         if (b[2] < l) l = b[2];
-        c = b[3]; v += b[4];
+        c = b[3]; v += b[4]; bv += b[5] || 0;
       }
-      out.push({ t: start + i * BAR_SEC, o: o * tick, h: h * tick, l: l * tick, c: c * tick, v, n: end - i });
+      // d = volume delta (buyer-initiated minus seller-initiated shares).
+      out.push({ t: start + i * BAR_SEC, o: o * tick, h: h * tick, l: l * tick, c: c * tick, v, d: 2 * bv - v, n: end - i });
     }
     return out;
   }
@@ -173,6 +174,14 @@
     return { bins, w, lo, poc, vaLo, vaHi, total };
   }
 
+  // Cumulative volume delta over the session.
+  function cvd(bars) {
+    const out = new Array(bars.length);
+    let s = 0;
+    for (let i = 0; i < bars.length; i++) { s += bars[i].d || 0; out[i] = s; }
+    return out;
+  }
+
   // Default candle size: aims for a new candle roughly every 2.5 real seconds.
   function defaultTf(speed) {
     const want = speed * 2.5;
@@ -181,5 +190,5 @@
     return best.sec;
   }
 
-  DTA.ind = { aggregate, Agg, closes, sma, ema, bollinger, rsi, macd, atr, vwap, heikinAshi, donchian, volumeProfile, defaultTf };
+  DTA.ind = { aggregate, Agg, closes, sma, ema, bollinger, rsi, macd, atr, vwap, heikinAshi, donchian, volumeProfile, defaultTf, cvd };
 })();

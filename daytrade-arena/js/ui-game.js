@@ -15,7 +15,8 @@
     tHud: 0, tSlow: 0, tWidgets: 0, lastAcctKey: '', newsSeen: 0, lastPhase: null, watch: null, predictPick: { dir: 0, conf: 1 },
     lbOrder: [], countdownTimer: null, lastCd: null, tapeCount: [], lastFillSound: 0
   };
-  let chart, ladder, tape, depth, race;
+  let chart, ladder, tape, depth, race, chartEnv;
+  const grid = { on: false, charts: [], key: '' };
   const C = () => DTA.app.client;
   const G = () => (C() ? C().game : null);
 
@@ -38,6 +39,7 @@
       onAlert: (sym, px) => { ui.toast('🔔 ' + sym + ' crossed ' + fmtPrice(px, G().syms[sym].tick), 'warn', { icon: '🔔' }); DTA.sfx.play('alert'); },
       onToolDone: () => renderTools()
     };
+    chartEnv = env;
     chart = new DTA.Chart($('#chart'), env);
     const prefs = DTA.settings;
     if (prefs.ind) Object.assign(chart.show, prefs.ind);
@@ -63,6 +65,7 @@
     buildIndicatorMenu();
     renderTools();
     $('#btnLive').addEventListener('click', () => { chart.resetView(); });
+    $('#btnGrid').addEventListener('click', () => toggleGrid());
     $('#btnCenter').addEventListener('click', () => ladder.recenter());
     // Tabs.
     for (const b of $$('[data-btab]')) b.addEventListener('click', () => { S.bottom = b.dataset.btab; for (const x of $$('[data-btab]')) x.classList.toggle('active', x === b); if (S.bottom === 'news') { S.newsSeen = G() ? G().news.length : 0; } renderBottom(true); });
@@ -85,6 +88,7 @@
     const items = [
       ['vwap', 'VWAP', 'var(--series-4)'], ['vwapBands', 'VWAP ±2σ bands', 'var(--series-4)'], ['ema9', 'EMA 9', 'var(--series-1)'], ['ema20', 'EMA 20', 'var(--series-7)'],
       ['ema50', 'EMA 50', 'var(--series-5)'], ['bb', 'Bollinger 20 2', 'var(--series-3)'], ['vol', 'Volume', 'var(--text-3)'], ['vp', 'Volume profile', 'var(--series-4)'],
+      ['heat', 'Liquidity heatmap', 'var(--series-1)'], ['bubbles', 'Big-print bubbles', 'var(--warn)'], ['delta', 'Volume delta pane', 'var(--up)'], ['cvd', 'Cumulative delta (CVD) pane', 'var(--text-2)'],
       ['rsi', 'RSI 14 pane', 'var(--series-7)'], ['macd', 'MACD pane', 'var(--series-1)'], ['fills', 'My fills', 'var(--up)'], ['rivals', "Rivals' fills", 'var(--series-2)'], ['news', 'News flags', 'var(--good)']
     ];
     menu.innerHTML = '';
@@ -116,7 +120,7 @@
       box.appendChild(b);
     }
   }
-  function setTf(sec) { chart.setTf(sec); renderTfs(); }
+  function setTf(sec) { chart.setTf(sec); for (const x of grid.charts) x.chart.setTf(sec); renderTfs(); }
   function stepTf(d) {
     const i = TIMEFRAMES.findIndex((x) => x.sec === chart.tf);
     setTf(TIMEFRAMES[clamp(i + d, 0, TIMEFRAMES.length - 1)].sec);
@@ -138,6 +142,8 @@
     chart.setTf(g.predict ? 60 : g.tf);
     chart.resetView();
     chart.setReplay(null);
+    if (grid.on && (g.predict || g.symList.length < 2)) toggleGrid(false);
+    else if (grid.on) { buildGrid(); toggleGrid(true); }
     ladder.recenter();
     renderTfs();
     const predict = !!g.predict;
@@ -163,6 +169,44 @@
   function modeTitle(g) {
     if (g.duel) return DUEL_TYPES[g.duel].icon + ' ' + DUEL_TYPES[g.duel].name;
     return (MODES[g.mode] || {}).icon + ' ' + (MODES[g.mode] || {}).name;
+  }
+
+  // ---------- multi-chart grid ----------
+  function buildGrid() {
+    const g = G();
+    for (const x of grid.charts) x.chart.destroy();
+    grid.charts = [];
+    const box = $('#chartGrid');
+    box.innerHTML = '';
+    const n = g.symList.length;
+    const cols = n <= 1 ? 1 : n <= 4 ? 2 : 3;
+    box.style.gridTemplateColumns = 'repeat(' + cols + ', minmax(0, 1fr))';
+    box.style.gridTemplateRows = 'repeat(' + Math.ceil(n / cols) + ', minmax(0, 1fr))';
+    for (const sym of g.symList) {
+      const cv = el('canvas', { 'aria-label': sym + ' chart' });
+      const cell = el('div.cell' + (sym === S.sym ? '.focus' : ''), { dataset: { sym }, title: 'Click to trade ' + sym + ' · double-click to open it full size' }, [cv]);
+      const env = Object.assign({}, chartEnv, { sym: () => (G() ? G().syms[sym] : null), onContext: null, onToolDone: null, ghost: null, refLine: null });
+      const ch = new DTA.Chart(cv, env);
+      ch.setTf(chart.tf);
+      Object.assign(ch.show, chart.show, { rsi: false, macd: false, delta: false, cvd: false });
+      ch.setType(chart.type);
+      cell.addEventListener('click', () => { focus(sym); for (const x of grid.charts) x.cell.classList.toggle('focus', x.sym === sym); });
+      cell.addEventListener('dblclick', () => { focus(sym); toggleGrid(false); });
+      box.appendChild(cell);
+      grid.charts.push({ sym, chart: ch, cell });
+    }
+    grid.key = g.symList.join(',') + ':' + (g.symList.length && g.syms[g.symList[0]].uid);
+  }
+  function toggleGrid(on) {
+    const g = G();
+    if (!g) return;
+    grid.on = on === undefined ? !grid.on : on;
+    if (grid.on && (grid.key !== g.symList.join(',') + ':' + (g.symList.length && g.syms[g.symList[0]].uid) || !grid.charts.length)) buildGrid();
+    if (grid.on) for (const x of grid.charts) { x.chart.setTf(chart.tf); Object.assign(x.chart.show, chart.show, { rsi: false, macd: false, delta: false, cvd: false }); x.chart.setType(chart.type); x.chart.dirty = true; }
+    $('#chartGrid').hidden = !grid.on;
+    $('#chart').style.visibility = grid.on ? 'hidden' : '';
+    $('#btnGrid').setAttribute('aria-pressed', String(grid.on));
+    chart.dirty = true;
   }
 
   // ---------- watchlist ----------
@@ -765,15 +809,18 @@
         if (left === S.lastCd) return;
         S.lastCd = left;
         cd.innerHTML = '';
+        if (!S.tip) S.tip = DTA.TIPS[Math.floor(Math.random() * DTA.TIPS.length)];
         const box = el('div.cd-box', [
           el('div.cd-num', { key: left }, left > 0 ? String(left) : 'GO'),
           el('div.cd-title', g.scenario ? g.scenario.icon + ' ' + g.scenario.name : modeTitle(g) + (g.rounds > 1 ? ' · round ' + g.round + ' of ' + g.rounds : '')),
           el('div.cd-brief', g.scenario ? g.scenario.brief : g.duel === 'scalp' ? 'Fresh chart: ' + g.symList.join(', ') + '. Position limit ' + fmtQty(g.settings.scalpMaxShares) + ' shares.' : g.duel === 'target' ? 'First to +' + Math.round(g.settings.targetPct * 100) + '% wins. −' + Math.round(g.settings.targetPct * 100) + '% and you\'re out.' : g.mode === 'elim' ? g.rounds + ' rounds. The lowest account at each bell is out.' : 'Trading ' + g.symList.join(', ') + '. Highest account at the close wins.')
         ]);
+        if (!g.predict) box.appendChild(el('p.muted', { style: { marginTop: '18px', fontSize: '13px' } }, '💡 ' + S.tip));
         cd.appendChild(box);
         if (left > 0 && !initial) DTA.sfx.play('tick');
       };
       S.lastCd = null;
+      S.tip = null;
       draw();
       S.countdownTimer = setInterval(draw, 100);
     } else if (ph === 'live') {
@@ -866,7 +913,8 @@
   function frame(t) {
     requestAnimationFrame(frame);
     if (DTA.app.screen !== 'game' || !G()) return;
-    if (chart.dirty) { chart.dirty = false; safe('chart', () => chart.render()); }
+    if (grid.on) { for (const x of grid.charts) if (x.chart.dirty) { x.chart.dirty = false; safe('grid', () => x.chart.render()); } }
+    else if (chart.dirty) { chart.dirty = false; safe('chart', () => chart.render()); }
     if (t - S.tWidgets > 50) {
       S.tWidgets = t;
       if (!G().predict) {
@@ -893,6 +941,7 @@
     client.on('tick', () => {
       chart.dirty = true;
       chart.checkAlerts();
+      if (grid.on) for (const x of grid.charts) x.chart.dirty = true;
     });
     client.on('phase', (m) => {
       if (DTA.app.screen !== 'game') return;
@@ -957,7 +1006,7 @@
   }
 
   DTA.ui.game = {
-    init, bind, enter, focus, buy, sell, flatten, reverse, cancelAll, limitAt, stepTf, setTf, setMobileTab, pick,
+    init, bind, enter, focus, buy, sell, flatten, reverse, cancelAll, limitAt, stepTf, setTf, setMobileTab, pick, toggleGrid,
     chart: () => chart, ladder: () => ladder, state: S,
     qtyStep(d) { const s = G().syms[S.sym]; const step = s.last * s.tick < 20 ? 100 : 10; setQty(Math.max(step, S.ticket.qty + d * step)); },
     focusIndex(i) { const g = G(); if (g && g.symList[i]) focus(g.symList[i]); }

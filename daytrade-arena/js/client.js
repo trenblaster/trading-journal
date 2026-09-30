@@ -134,7 +134,7 @@
       const syms = {};
       for (const k in mk.syms) {
         const s = mk.syms[k];
-        syms[k] = Object.assign({}, s, { uid: DTA.uid('s'), tape: [], book: { b: [], a: [] }, version: 1, dirtyFrom: 0, prevLast: s.last, flash: 0, vap: null });
+        syms[k] = Object.assign({}, s, { uid: DTA.uid('s'), tape: [], book: { b: [], a: [] }, version: 1, dirtyFrom: 0, prevLast: s.last, flash: 0, vap: null, heat: [], big: s.big || [] });
       }
       const symList = Object.keys(syms);
       const keepFocus = prev && prev.focus && syms[prev.focus] ? prev.focus : symList[0];
@@ -176,6 +176,7 @@
         if (d[8] !== null) s.hi = d[8];
         if (d[9] !== null) s.lo = d[9];
         if (d[10] !== null) s.open = d[10];
+        if (d[11]) { for (const bp of d[11]) s.big.push(bp); if (s.big.length > 3000) s.big.splice(0, s.big.length - 3000); }
         s.version++;
       }
       if (m.f && g.syms[m.f]) {
@@ -185,6 +186,16 @@
           if (s.tape.length > 400) s.tape.splice(0, s.tape.length - 400);
         }
         if (m.bk) { s.book = m.bk; s.bookT = performance.now(); }
+      }
+      if (m.hb) {
+        // Resting-liquidity history for the heatmap: [t, bestBid, bidSizes, bestAsk, askSizes].
+        for (const sym in m.hb) {
+          const s = g.syms[sym];
+          if (!s) continue;
+          const h = m.hb[sym];
+          s.heat.push([g.t, h[0], h[1], h[2], h[3]]);
+          if (s.heat.length > 5000) s.heat.splice(0, 1000);
+        }
       }
       if (m.lb) { g.lb = m.lb; this.recordLb(m.lb, g.t); }
       if (m.a) g.acct = m.a;

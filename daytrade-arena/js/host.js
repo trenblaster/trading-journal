@@ -749,11 +749,21 @@
       const sendLb = forceLb || (withLb && g.tickN % 4 === 0);
       const lb = sendLb ? this.leaderboard() : null;
       const books = {};
+      // Every 5th tick, a compact book for every symbol so heatmaps have history even off-focus.
+      let heat = null;
+      if (g.tickN % 5 === 0) {
+        heat = {};
+        for (const s of m.list) {
+          const bk = books[s.sym] || (books[s.sym] = s.book(t, 24));
+          heat[s.sym] = [bk.b.length ? bk.b[0][0] : 0, bk.b.map((l) => l[1]), bk.a.length ? bk.a[0][0] : 0, bk.a.map((l) => l[1])];
+        }
+      }
       for (const p of this.players.values()) {
         if (p.isBot || !p.connected) continue;
         const focus = p.focus && m.syms[p.focus] ? p.focus : m.list[0].sym;
         if (!books[focus]) books[focus] = m.syms[focus].book(t, 24);
         const msg = { t: 'k', c: t, ph: this.phase, s: deltas, f: focus, pr: prints[focus], bk: books[focus] };
+        if (heat) msg.hb = heat;
         if (lb) msg.lb = lb;
         const a = e.acct(p.id);
         if (a && (a.dirty || g.tickN % 10 === 0)) msg.a = e.view(p.id);

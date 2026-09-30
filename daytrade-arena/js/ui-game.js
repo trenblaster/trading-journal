@@ -756,7 +756,7 @@
       body.appendChild(el('div.empty', { style: { textAlign: 'left', padding: '8px 10px' } }, 'Account ' + fmtMoney(eq) + ' · Margin in use ' + fmtCompactMoney(a.mu || 0) + ' · Free ' + fmtCompactMoney(Math.max(0, a.free || 0)) + ' · Gross exposure ' + fmtCompactMoney(a.gross) + ' · Maintenance ' + fmtCompactMoney(a.maint) + ' · Commissions ' + fmtMoney(a.comm) + (a.fees ? ' · Borrow ' + fmtMoney(a.fees) : '') + (a.mc ? ' · Margin calls ' + a.mc : '')));
     } else if (S.bottom === 'ord') {
       const rows = a.ord.map((o) => {
-        const [id, sym, side, type, qty, filled, lp, sp, status, tag, parent, trail] = o;
+        const [id, sym, side, type, qty, filled, lp, sp, status, tag, , trail] = o;
         const s = g.syms[sym];
         return el('tr', [el('td', el('b', sym)), el('td.l.' + (side > 0 ? 'pos' : 'neg'), side > 0 ? 'Buy' : 'Sell'), el('td.l', (tag ? tag + ' ' : '') + type), el('td', fmtQty(qty)), el('td', fmtQty(filled)),
           el('td', lp ? fmtPrice(lp, s.tick) : '—'), el('td', sp ? fmtPrice(sp, s.tick) : trail ? 'trail ' + fmtPrice(trail, s.tick) : '—'), el('td.l', status === 'pending' ? 'Waits for entry' : 'Working'),

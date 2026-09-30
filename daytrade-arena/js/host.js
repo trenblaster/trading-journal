@@ -6,7 +6,7 @@
   const DTA = (typeof window !== 'undefined' ? window : globalThis).DTA;
   const {
     MarketSim, Engine, Bot, BOTS, SYMBOLS, MARKETS, SESSIONS, SCENARIOS, MODES, DUEL_TYPES, DEFAULT_SETTINGS,
-    PLAYER_COLORS, MAX_PLAYERS, AVATARS, EMOTES, RNG, hashStr, clamp, ind, roundTrips, fmtSignedMoney, fmtPct, BOT_QUIPS, parseClock
+    PLAYER_COLORS, MAX_PLAYERS, AVATARS, EMOTES, RNG, hashStr, clamp, ind, roundTrips, fmtSignedMoney, fmtPct, parseClock
   } = DTA;
 
   const PROTO = 4;
@@ -473,7 +473,6 @@
 
     snapshotFor(p) {
       const g = this.g;
-      const m = g.market;
       return {
         t: 'start', mode: g.mode, duel: g.duel, seed: g.seedLabel, round: g.round, rounds: g.rounds, roundEnds: g.roundEnds,
         stopAt: g.stopAt, speed: g.speed, tf: g.tfSec, phase: this.phase, left: Math.max(0, this.phaseEnd - nowMs()),

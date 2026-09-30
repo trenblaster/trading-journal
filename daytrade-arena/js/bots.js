@@ -4,7 +4,7 @@
 (function () {
   'use strict';
   const DTA = (typeof window !== 'undefined' ? window : globalThis).DTA;
-  const { ind, BOT_QUIPS, BAR_SEC, clamp } = DTA;
+  const { ind, BOT_QUIPS, BAR_SEC } = DTA;
 
   const LEVELS = {
     easy: { react: [1800, 3600], risk: 0.004, skip: 0.45, flip: 0.35 },

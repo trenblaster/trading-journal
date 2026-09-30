@@ -462,6 +462,7 @@
 
     drawHalts(ctx, L, n, s) {
       const th = this.th;
+      let lastLabel = -1e9;
       for (const hl of s.haltList || []) {
         const x0 = this.xOfT(hl[0], L, n) - this.barW / 2;
         const endT = hl[1] > hl[0] ? Math.min(hl[1], this.env.now()) : this.env.now();
@@ -476,8 +477,19 @@
         for (let k = x0 - L.mainH; k < x1; k += 10) { ctx.moveTo(k, L.mainH); ctx.lineTo(k + L.mainH, 0); }
         ctx.stroke();
         ctx.restore();
-        ctx.fillStyle = th.warn; ctx.font = FONT_B; ctx.textAlign = 'left';
-        ctx.fillText('HALT', x0 + 4, 30);
+        // Label low in the band (the legend and calendar flags own the top); halts close together share one.
+        const reason = hl[2] || 'Trading halt';
+        this.hits.push({ kind: 'halt', box: [x0, 0, Math.max(6, x1 - x0), L.mainH], text: '⏸ ' + reason + ' · ' + fmtClock(hl[0], false) + (hl[1] > hl[0] ? '–' + fmtClock(hl[1], false) : ', still halted') });
+        if (x0 - lastLabel < 48) continue;
+        lastLabel = x0;
+        ctx.font = FONT_B;
+        const tw = ctx.measureText('HALT').width + 10, ly = L.mainH - 52 - (this.bottomInset || 0);
+        roundRect(ctx, x0 + 2, ly - 8, tw, 15, 4);
+        ctx.fillStyle = alpha(th.panel, 0.9); ctx.fill();
+        ctx.strokeStyle = alpha(th.warn, 0.7); ctx.lineWidth = 1; ctx.stroke();
+        ctx.fillStyle = th.warn; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText('HALT', x0 + 7, ly + 0.5);
+        ctx.textBaseline = 'alphabetic';
       }
     }
 
@@ -580,10 +592,17 @@
       const th = this.th;
       const thr = s.bigThreshold || 1;
       const x0 = this.tOfIdx(this.rightIndex(n) - L.plotW / this.barW - 2);
+      // Zoomed out, only the largest prints in view get a bubble (about one per 40 px of width).
+      let vis = [];
       for (let k = list.length - 1; k >= 0; k--) {
-        const [t, idx, qty, side] = list[k];
-        if (t < x0) break;
-        if (this.replayT !== null && t > this.replayT) continue;
+        const pr = list[k];
+        if (pr[0] < x0) break;
+        if (this.replayT !== null && pr[0] > this.replayT) continue;
+        vis.push(pr);
+      }
+      const cap = Math.round(clamp(L.plotW / 40, 10, 45));
+      if (vis.length > cap) vis = vis.sort((a, b) => b[2] - a[2]).slice(0, cap);
+      for (const [t, idx, qty, side] of vis) {
         const x = this.xOf(Math.floor(this.idxOfT(t)), L, n);
         if (x < -20 || x > L.plotW + 20) continue;
         const y = this.yOf(idx * s.tick);
@@ -958,7 +977,7 @@
       const cal = [...byT.values()].sort((a, b) => a.t - b.t);
       // Flags sit just under the legend so they never hide behind it.
       const Y0 = (this.legendW2 === undefined || this.legendW2 ? 37 : 20) + 17;
-      let lastRight = -1e9, row = 0;
+      const rowRight = [-1e9, -1e9, -1e9];
       for (const e of cal) {
         const x = this.xOfT(e.t, L, n) - this.barW / 2;
         if (x < -10 || x > L.plotW + 10) continue;
@@ -967,12 +986,13 @@
         ctx.font = FONT_S;
         const tw = ctx.measureText(text).width + 10;
         const lx = clamp(x - tw / 2, 2, L.plotW - tw - 2);
-        // Flags that would overlap stack into a second row; a flag also steps down past level labels.
-        row = lx < lastRight + 4 ? (row + 1) % 2 : 0;
+        // Flags that would overlap stack into the first free row (up to three); a flag also steps down past level labels.
+        let row = rowRight.findIndex((rr) => lx >= rr + 4);
+        if (row < 0) row = rowRight.indexOf(Math.min(...rowRight));
+        rowRight[row] = lx + tw;
         let Y = Y0 + row * 17;
         const hitsLabel = (yy) => (this.lvBoxes || []).some((b) => lx < b[0] + b[2] && lx + tw > b[0] && yy - 13 < b[1] + b[3] && yy + 2 > b[1]);
         for (let k = 0; k < 4 && hitsLabel(Y); k++) Y += 17;
-        lastRight = Math.max(row ? lastRight : -1e9, lx + tw);
         const up = e.t > now && e.rel;
         ctx.strokeStyle = alpha(col, !e.rel ? 0.25 : up ? 0.8 : 0.45);
         ctx.setLineDash(up ? [4, 3] : [2, 4]); ctx.lineWidth = 1;
@@ -1414,7 +1434,7 @@
       this.legendW2 = items.length ? x - 6 : 0;
       // Hover tooltip for markers and levels.
       if (m.in && !this.drag) {
-        const hit = this.hitAt(m.x, m.y, ['fill', 'rival', 'news', 'cancel', 'big', 'level', 'cal']);
+        const hit = this.hitAt(m.x, m.y, ['fill', 'rival', 'news', 'cancel', 'big', 'level', 'cal', 'halt']);
         if (hit) this.tooltip(ctx, L, m.x, m.y, hit.text);
       }
     }
@@ -1546,7 +1566,7 @@
         if (kinds && !kinds.includes(h.kind)) continue;
         if (h.r !== undefined && Math.hypot(h.x - x, h.y - y) <= h.r + 2) return h;
         if (h.kind === 'orderLine' && Math.abs(h.y - y) <= 5 && x < (this.layout ? this.layout.plotW : 1e9)) return h;
-        if ((h.kind === 'level' || h.kind === 'cal') && h.box) { const [bx, by, bw, bh] = h.box; if (x >= bx && x <= bx + bw && y >= by && y <= by + bh) return h; }
+        if ((h.kind === 'level' || h.kind === 'cal' || h.kind === 'halt') && h.box) { const [bx, by, bw, bh] = h.box; if (x >= bx && x <= bx + bw && y >= by && y <= by + bh) return h; }
         if (h.kind === 'drawing') {
           if (h.y !== undefined && Math.abs(h.y - y) <= 5) return h;
           if (h.seg) { const [x0, y0, x1, y1] = h.seg; const dist = segDist(x, y, x0, y0, x1, y1); if (dist <= 5) return h; }

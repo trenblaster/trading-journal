@@ -229,6 +229,7 @@
     ism: { name: 'ISM manufacturing', long: 'ISM manufacturing PMI', at: H(10), imp: 2, hit: { MKT: 0.3, RATES: 0.35, OIL: 0.25 }, ws: 0.3, fmt: { base: 49.2, step: 0.8, dp: 1, unit: '', up: 'stronger', down: 'weaker' } },
     jolts: { name: 'JOLTS', long: 'JOLTS job openings', at: H(10), imp: 1, hit: { MKT: -0.1, RATES: 0.3 }, ws: 0.2, fmt: { base: 7.4, step: 0.25, dp: 2, unit: 'M', up: 'stronger', down: 'weaker' } },
     umich: { name: 'Consumer sentiment', long: 'UMich consumer sentiment', at: H(10), imp: 1, hit: { MKT: 0.15, RATES: 0.1 }, ws: 0.2, fmt: { base: 61.5, step: 2.2, dp: 1, unit: '', up: 'stronger', down: 'weaker' } },
+    confb: { name: 'Consumer confidence', long: 'Conference Board consumer confidence', at: H(10), imp: 1, hit: { MKT: 0.15, RATES: 0.12 }, ws: 0.2, fmt: { base: 97.5, step: 3, dp: 1, unit: '', up: 'stronger', down: 'weaker' } },
     eia: { name: 'EIA crude', long: 'EIA crude oil inventories', at: H(10, 30), imp: 3, hit: { OIL: -0.75 }, ws: 0.4, fmt: { base: -1.2, step: 2.6, dp: 1, unit: 'M bbl', up: 'surprise build', down: 'bigger draw' } },
     auction: { name: '10-yr auction', long: '10-year Treasury auction', at: H(13), imp: 1, hit: { RATES: 0.4, MKT: -0.12, GOLD: -0.15 }, ws: 0.2, fmt: null },
     fomc: { name: 'FOMC', long: 'FOMC rate decision', at: H(14), imp: 3, hit: { MKT: 0.55, RATES: -0.9, GOLD: 0.6, TECH: 0.3, SMALL: 0.4 }, ws: 0.65, fmt: null },
@@ -239,7 +240,7 @@
   // What typically lands on each weekday (probabilities).
   const WEEK_CAL = [
     [['ism', 0.5], ['speaker', 0.4]],
-    [['jolts', 0.6], ['umich', 0.2], ['speaker', 0.3], ['auction', 0.3]],
+    [['jolts', 0.6], ['confb', 0.35], ['speaker', 0.3], ['auction', 0.3]],
     [['eia', 1], ['cpi', 0.25], ['fomc', 0.18], ['auction', 0.4], ['speaker', 0.2]],
     [['claims', 1], ['ppi', 0.35], ['retail', 0.25], ['speaker', 0.3]],
     [['nfp', 0.4], ['umich', 0.5], ['retail', 0.2], ['speaker', 0.3]]

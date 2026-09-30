@@ -913,8 +913,11 @@
     out.push(g.days[1] + '. Yesterday\'s session and the ' + (fut ? 'overnight' : 'premarket') + ' are on the chart, with the key levels drawn.');
     const gaps = g.symList.slice(0, 4).map((k) => { const s = g.syms[k]; return k + ' ' + fmtPct(s.last / s.prev - 1) + (s.runner ? ' (news)' : ''); });
     out.push('Vs the prior close: ' + gaps.join(' · '));
-    const upc = (g.cal || []).filter((e) => !e.done && e.t >= g.t && e.t <= g.end).map((e) => e.name + ' ' + fmtClock(e.t, false));
-    if (upc.length) out.push('Data today: ' + upc.join(' · '));
+    // Releases during the match that move something here, and what they move when it isn't everything.
+    const upc = (g.cal || []).filter((e) => !e.done && e.t >= g.t && e.t <= g.end && (!e.moves || e.moves.length))
+      .map((e) => e.name + ' ' + fmtClock(e.t, false) + (e.moves && e.moves.length < g.symList.length ? ' (' + e.moves.join(' ') + ')' : ''));
+    if (upc.length) out.push('Data during the match: ' + upc.join(' · '));
+    for (const k of g.symList.filter((x) => g.syms[x].runner).slice(0, 2)) out.push('📰 ' + k + ': ' + g.syms[k].runner.catalyst);
     return out;
   }
 

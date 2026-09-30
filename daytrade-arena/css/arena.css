@@ -99,9 +99,9 @@ input:focus, select:focus { border-color: var(--accent); outline: none; }
 .pill.good { border-color: var(--good); color: #7ee37e; }
 .pill.acc { border-color: var(--accent); color: #9cc4f2; }
 .seg { display: inline-flex; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 2px; gap: 2px; flex-wrap: wrap; }
-.seg button { border: none; background: transparent; color: var(--text-2); padding: 5px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; }
-.seg button:hover { color: var(--text-1); }
-.seg button.active { background: var(--panel-3); color: var(--text-1); box-shadow: inset 0 0 0 1px var(--axis); }
+.seg button { border: none; background: transparent; color: var(--text-2); padding: 7px 12px; min-height: 30px; cursor: pointer; transition: background .15s, color .15s; border-radius: 6px; font-size: 12px; font-weight: 600; }
+.seg button:hover { color: var(--text-1); background: var(--panel-2, rgba(255,255,255,.05)); }
+.seg button.active { background: var(--panel-3); color: var(--text-1); box-shadow: inset 0 0 0 1px var(--accent, #3987e5), inset 0 -2px 0 var(--accent, #3987e5); }
 
 /* ---------- screens ---------- */
 .screen { position: fixed; inset: 0; display: none; }

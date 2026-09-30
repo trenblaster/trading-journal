@@ -19,6 +19,10 @@
     OILX: { sym: 'OILX', name: 'Oilex Energy', sector: 'Energy', p: 63.75, beta: 0.45, oil: 1.0, vol: 0.010, depth: 1700, spread: 1, printRate: 1.0, printSize: 200, cap: '88B', float: 1.4e9, halts: false, htb: false, desc: 'Oil major. Follows crude more than stocks.' },
     MEME: { sym: 'MEME', name: 'MemeCo Holdings', sector: 'Retail', p: 4.18, beta: 0.8, vol: 0.075, depth: 7500, spread: 1, printRate: 1.9, printSize: 1400, cap: '310M', float: 18e6, halts: true, htb: true, borrowFee: 0.04, maxShort: 40000, shortInterest: 0.31, desc: 'Heavily shorted meme stock. Squeezes, halts, chaos.' },
     BIOT: { sym: 'BIOT', name: 'Biotiq Therapeutics', sector: 'Biotech', p: 11.62, beta: 0.6, vol: 0.045, depth: 3200, spread: 1, printRate: 1.2, printSize: 550, cap: '640M', float: 42e6, halts: true, htb: true, borrowFee: 0.03, maxShort: 30000, shortInterest: 0.18, desc: 'One-drug biotech. News makes or breaks it.' },
+    ES: { sym: 'ES', name: 'S&P 500 futures', sector: 'Index', p: 5812.25, tick: 0.25, beta: 1.0, vol: 0.0015, depth: 900, spread: 1, printRate: 3.2, printSize: 6, cap: 'Futures', float: 0, halts: false, htb: false, desc: 'E-mini S&P. Deep book, grinds between levels, respects VWAP and round numbers.' },
+    NQ: { sym: 'NQ', name: 'Nasdaq 100 futures', sector: 'Index', p: 20415.5, tick: 0.25, beta: 1.3, vol: 0.0018, depth: 180, spread: 1, printRate: 3.0, printSize: 3, cap: 'Futures', float: 0, halts: false, htb: false, desc: 'E-mini Nasdaq. Faster and wider swings than ES, sweeps highs and lows.' },
+    CL: { sym: 'CL', name: 'Crude oil futures', sector: 'Commodity', p: 71.84, tick: 0.01, beta: 0.2, oil: 0.9, vol: 0.007, depth: 60, spread: 1, printRate: 2.6, printSize: 4, cap: 'Futures', float: 0, halts: false, htb: false, desc: 'WTI crude. Spiky, headline driven, stop runs through levels.' },
+    GC: { sym: 'GC', name: 'Gold futures', sector: 'Commodity', p: 2648.3, tick: 0.1, beta: -0.2, rates: -1.2, vol: 0.007, depth: 40, spread: 1, printRate: 2.0, printSize: 3, cap: 'Futures', float: 0, halts: false, htb: false, desc: 'Gold. Trends on rates and the dollar, clean moves between levels.' },
     QBIT: { sym: 'QBIT', name: 'QuBit Quantum', sector: 'Tech', p: 2.37, beta: 1.1, vol: 0.10, depth: 12000, spread: 1, printRate: 2.0, printSize: 2800, cap: '82M', float: 3.4e6, halts: true, htb: true, borrowFee: 0.02, maxShort: 25000, shortInterest: 0.22, desc: 'Low-float small cap. Rips and dumps on nothing.' }
   };
 
@@ -27,6 +31,9 @@
     { id: 'mega', name: 'Mega caps', syms: ['SPYR', 'NOVA', 'CHIP', 'FINX'] },
     { id: 'small', name: 'Small-cap runners', syms: ['MEME', 'QBIT', 'BIOT'] },
     { id: 'all', name: 'Whole market', syms: ['SPYR', 'NOVA', 'CHIP', 'FINX', 'OILX', 'MEME'] },
+    { id: 'index', name: 'Index futures (ES, NQ)', syms: ['ES', 'NQ'] },
+    { id: 'commod', name: 'Oil & gold (CL, GC)', syms: ['CL', 'GC'] },
+    { id: 'futures', name: 'Futures (ES, NQ, CL, GC)', syms: ['ES', 'NQ', 'CL', 'GC'] },
     { id: 'NOVA', name: 'Just NOVA', syms: ['NOVA'] },
     { id: 'MEME', name: 'Just MEME', syms: ['MEME'] },
     { id: 'QBIT', name: 'Just QBIT', syms: ['QBIT'] },

@@ -650,7 +650,9 @@ body.flash-bad::after { content: ''; position: fixed; inset: 0; z-index: 85; poi
   .sym-title .facts { display: none; }
   #btnGrid, #btnShot, #btnWide, .tb-dropdown:has(#btnDraw) { display: none; }
   .view-group button { padding: 3px 6px; }
-  .lobby-grid { grid-template-columns: 1fr; }
+  .lobby-grid { grid-template-columns: minmax(0, 1fr); align-content: start; }
+  .lobby-grid .card { min-height: auto; }
+  .lobby-grid .player-list, .lobby-grid .settings-card { overflow: visible; }
   .overlay-center { inset: 0; }
   .toasts { top: auto; bottom: 70px; }
 }
@@ -665,7 +667,8 @@ body.flash-bad::after { content: ''; position: fixed; inset: 0; z-index: 85; poi
   .chart-toolbar { padding: 5px 6px; }
   .sym-title { flex-basis: 100%; }
   .qp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .mkt-grid { grid-template-columns: 1fr; }
+  .mkt-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mkt-card p { display: none; }
   .mode-tiles { grid-template-columns: 1fr; }
   .set-grid { grid-template-columns: 1fr; }
   .mode-tabs { grid-template-columns: repeat(2, 1fr); }

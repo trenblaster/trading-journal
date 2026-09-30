@@ -691,11 +691,17 @@
         const rm = members.find((m) => m.k === 'RN' || m.k === 'rn');
         const rp = rm ? rm.idx * tick : p;
         const text = (conf ? '◆ ' : '') + (named.length ? named.map((m) => K[m.k].label).join(' · ') + (rm ? ' · ' + roundTxt(rp) : '') : roundTxt(rp));
-        labels.push({ y, text, col: onlyRound ? th.text3 : col, conf, z, names: members.map((m) => K[m.k].name + (m.k === 'RN' || m.k === 'rn' ? ' ' + roundTxt(m.idx * tick) : ' ' + fmtPrice(m.idx * tick, tick))), p, strong: conf || z.s >= 0.6 });
+        labels.push({ y, text, col: onlyRound ? th.text3 : col, conf, z, round: onlyRound, names: members.map((m) => K[m.k].name + (m.k === 'RN' || m.k === 'rn' ? ' ' + roundTxt(m.idx * tick) : ' ' + fmtPrice(m.idx * tick, tick))), p, strong: conf || z.s >= 0.6 });
         this.lvDrawn.push({ y, z, col });
       }
       // Labels at the right edge of the plot, nudged apart so they never overlap.
       labels.sort((a, b) => a.y - b.y);
+      // Round numbers on their own only get a label when there's room; named levels always do.
+      for (let k = 0, lastR = -1e9; k < labels.length; k++) {
+        const lb = labels[k];
+        if (!lb.round) continue;
+        if (lb.y - lastR < 44) { labels.splice(k, 1); k--; } else lastR = lb.y;
+      }
       let lastY = -1e9;
       ctx.font = FONT_S;
       const right = L.plotW - 6 - (this.show.vp ? L.plotW * 0.14 * 0.25 : 0);

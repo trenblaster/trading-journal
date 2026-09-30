@@ -322,6 +322,8 @@
       Object.assign(this, o);
       this.ep = null; this.touch = new Map(); this.cool = new Map(); this.prev = null; this.quiet = -Infinity;
       this.flow = 0; this.volBoost = 1; this.log = [];
+      // Each regular-session open, the market takes a fresh look at its levels: earlier tests count half.
+      this.nextReset = this.rth0 !== undefined ? this.rth0 - 86400 : Infinity;
     }
     u(t) { return this.sd * Math.sqrt(300 / DAY) * Math.sqrt(Math.max(0.15, activity(this.prof, t))); }
     tickLog(p) { return this.tick / Math.exp(p); }
@@ -330,6 +332,10 @@
       this.quiet = Math.max(this.quiet, t + dur);
     }
     step(t, dt) {
+      while (t >= this.nextReset) {
+        for (const [k, v] of this.touch) { if (v <= 1) this.touch.delete(k); else this.touch.set(k, Math.floor(v / 2)); }
+        this.nextReset += 86400;
+      }
       const p = this.price();
       const prev = this.prev === null ? p : this.prev;
       this.prev = p;
@@ -338,7 +344,7 @@
       if (activity(this.prof, t) <= 0) return;
       const u = this.u(t);
       const tl = this.tickLog(p);
-      const near = Math.max(1.5 * tl, 0.28 * u);
+      const near = Math.max(1.5 * tl, 0.35 * u);
       if (this.ep) { this.run(t, dt, p, u, tl, near); return; }
       if (t < this.quiet) return;
       let best = null;
@@ -356,23 +362,25 @@
     start(t, z, dir, u, tl, forced) {
       const r = this.rng;
       const touches = this.touch.get(z.key) || 0;
+      const s = Math.min(0.97, z.s) * (0.6 + 0.4 * this.strength) * Math.pow(0.88, touches);
+      // Weak levels (a lone minor round number, a level tested to death) are just prices: no reaction.
+      if (s < 0.26 && forced === null) { this.cool.set(z.key, t + 240); return; }
       this.touch.set(z.key, touches + 1);
-      const s = Math.min(0.97, z.s) * this.strength * Math.pow(0.76, touches);
       const slope = this.target.anchorSlope(t);
       const align = clamp((slope * dir * 300) / Math.max(1e-9, u) * 1.6, -1.5, 1.5);
-      let pRej = forced !== null ? forced : 0.16 + 0.66 * s - 0.24 * Math.max(0, align) + 0.08 * Math.max(0, -align);
+      let pRej = forced !== null ? forced : 0.25 + 0.7 * s - 0.22 * Math.max(0, align) + 0.08 * Math.max(0, -align);
       pRej = clamp(pRej, 0.08, 0.9);
       if (r.chance(pRej)) {
         const style = r.weighted(['sweep', 'touch', 'front'], [0.22, 0.38, 0.4]);
         const over = style === 'sweep' ? r.range(0.18, 0.55) * u + 2 * tl : style === 'touch' ? r.int(0, 1) * tl : -(r.range(1, 3) * tl + r.range(0, 0.06) * u);
         this.ep = {
           type: 'reject', z, dir, style, C: z.L + dir * over, t0: t, until: t + r.range(150, 480) * (0.6 + s), touched: false,
-          B: r.range(0.6, 1.5) * u * (0.7 + s), bounceDur: r.range(120, 420), perm: r.range(0.3, 0.7), s, flip: forced !== null
+          B: r.range(1.0, 2.4) * u * (0.7 + s) * (0.4 + 0.6 * this.strength), bounceDur: r.range(60, 240), perm: r.range(0.5, 0.9), s, flip: forced !== null
         };
       } else {
         this.ep = {
           type: 'break', z, dir, t0: t, until: t + 900, crossed: false, s,
-          R: r.range(0.55, 1.6) * u * (0.6 + 0.7 * s), runDur: r.range(60, 240),
+          R: r.range(0.8, 2.0) * u * (0.6 + 0.7 * s) * (0.4 + 0.6 * this.strength), runDur: r.range(45, 180),
           follow: r.weighted(['retest', 'fail', 'run'], [0.5, 0.18, 0.32]), pulled: r.chance(0.35)
         };
       }
@@ -382,8 +390,8 @@
       if (!ep) return;
       this.log.push({ t, type: ep.type, style: ep.style || ep.follow, label: ep.z.label, dir: ep.dir, flip: !!ep.flip });
       if (this.log.length > 200) this.log.shift();
-      this.cool.set(ep.z.key, t + (cdMin !== undefined ? cdMin : this.rng.range(300, 1200)));
-      this.quiet = t + this.rng.range(20, 90);
+      this.cool.set(ep.z.key, t + (cdMin !== undefined ? cdMin : this.rng.range(60, 240)));
+      this.quiet = t + this.rng.range(5, 25);
       this.ep = null;
     }
     run(t, dt, p, u, tl, near) {

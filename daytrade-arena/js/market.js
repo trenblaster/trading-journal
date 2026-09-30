@@ -42,7 +42,7 @@
         this.prior = null; this.liveDev = null;
         this.zcache = { t: -1e9, z: [] };
         this.reactor = new P.Reactor({
-          rng: rng.fork('react'), strength: 1, sd: spec.sd * m.volScale, prof: spec.prof, tick: f.tick,
+          rng: rng.fork('react'), strength: 1, sd: spec.sd * m.volScale, prof: spec.prof, tick: f.tick, rth0: spec.rth[0],
           price: () => this.c + this.path.lf, target: this.path, zones: (t) => this.zones(t)
         });
       } else this.c = 0;
@@ -110,7 +110,7 @@
       this.reactor = null;
       if (def.reactor && !this.lead) {
         this.reactor = new P.Reactor({
-          rng: rng.fork('react'), strength: def.reactor, sd: (def.vol || 0.01) * market.volScale, prof: this.prof, tick: this.tick,
+          rng: rng.fork('react'), strength: def.reactor, sd: (def.vol || 0.01) * market.volScale, prof: this.prof, tick: this.tick, rth0: def.rth[0],
           price: () => this.comp.total(), target: this.y, zones: (t) => this.zones(t)
         });
       }

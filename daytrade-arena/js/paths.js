@@ -331,6 +331,17 @@
 
   // ---------- reactions at key levels ----------
   // o: {rng, strength, sd (instrument daily vol), prof, tick, price() → log price, target (Path to push), zones(t) → [{L, s, key, label}]}
+  // How each kind of market trades its levels. rej: shift in the odds of a rejection. styles: how rejections
+  // look [sweep the stops beyond, touch it, turn just in front]. bounce/run: size of the move away.
+  // follow: after a break [retest from the other side, fail back through, keep running].
+  const CHARACTER = {
+    index: { rej: 0.03, styles: [0.34, 0.34, 0.32], bounce: 1, run: 1, follow: [0.52, 0.2, 0.28] },     // stop runs past the level, clean retests
+    energy: { rej: -0.08, styles: [0.3, 0.28, 0.42], bounce: 1.1, run: 1.35, follow: [0.38, 0.14, 0.48] }, // breaks run hard, fewer retests
+    metal: { rej: 0.06, styles: [0.16, 0.5, 0.34], bounce: 0.95, run: 1.1, follow: [0.55, 0.15, 0.3] },  // orderly: turns at the level to the tick
+    stock: { rej: 0, styles: [0.22, 0.38, 0.4], bounce: 1, run: 1, follow: [0.5, 0.18, 0.32] },
+    small: { rej: -0.05, styles: [0.36, 0.24, 0.4], bounce: 1.25, run: 1.5, follow: [0.34, 0.3, 0.36] }   // squeezes through, violent failed breakouts
+  };
+
   class Reactor {
     constructor(o) {
       Object.assign(this, o);
@@ -382,20 +393,21 @@
       this.touch.set(z.key, touches + 1);
       const slope = this.target.anchorSlope(t);
       const align = clamp((slope * dir * 300) / Math.max(1e-9, u) * 1.6, -1.5, 1.5);
-      let pRej = forced !== null ? forced : 0.25 + 0.7 * s - 0.22 * Math.max(0, align) + 0.08 * Math.max(0, -align);
+      const ch = CHARACTER[this.prof] || CHARACTER.stock;
+      let pRej = forced !== null ? forced : 0.25 + 0.7 * s - 0.22 * Math.max(0, align) + 0.08 * Math.max(0, -align) + ch.rej;
       pRej = clamp(pRej, 0.08, 0.9);
       if (r.chance(pRej)) {
-        const style = r.weighted(['sweep', 'touch', 'front'], [0.22, 0.38, 0.4]);
+        const style = r.weighted(['sweep', 'touch', 'front'], ch.styles);
         const over = style === 'sweep' ? r.range(0.18, 0.55) * u + 2 * tl : style === 'touch' ? r.int(0, 1) * tl : -(r.range(1, 3) * tl + r.range(0, 0.06) * u);
         this.ep = {
           type: 'reject', z, dir, style, C: z.L + dir * over, t0: t, until: t + r.range(150, 480) * (0.6 + s), touched: false,
-          B: r.range(1.0, 2.4) * u * (0.7 + s) * (0.4 + 0.6 * this.strength), bounceDur: r.range(60, 240), perm: r.range(0.5, 0.9), s, flip: forced !== null
+          B: r.range(1.0, 2.4) * u * (0.7 + s) * (0.4 + 0.6 * this.strength) * ch.bounce, bounceDur: r.range(60, 240), perm: r.range(0.5, 0.9), s, flip: forced !== null
         };
       } else {
         this.ep = {
           type: 'break', z, dir, t0: t, until: t + 900, crossed: false, s,
-          R: r.range(0.8, 2.0) * u * (0.6 + 0.7 * s) * (0.4 + 0.6 * this.strength), runDur: r.range(45, 180),
-          follow: r.weighted(['retest', 'fail', 'run'], [0.5, 0.18, 0.32]), pulled: r.chance(0.35)
+          R: r.range(0.8, 2.0) * u * (0.6 + 0.7 * s) * (0.4 + 0.6 * this.strength) * ch.run, runDur: r.range(45, 180),
+          follow: r.weighted(['retest', 'fail', 'run'], ch.follow), pulled: r.chance(0.35)
         };
       }
     }

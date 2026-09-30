@@ -42,7 +42,8 @@
       qp.innerHTML = '';
       for (const m of MARKETS) {
         const b = el('button.qp-tile', { type: 'button', title: m.desc }, [el('span.qp-i', m.icon), el('b', m.name), el('small', symLabel(m.pick))]);
-        b.addEventListener('click', () => DTA.app.hostGame(true, { market: m.id, syms: m.pick.slice(), mode: 'race', minutes: 8, bots: 3 }, true));
+        // Quick play uses each market's natural window (oil & gold start before their 8:20 and 9:00 opens).
+        b.addEventListener('click', () => DTA.app.hostGame(true, { market: m.id, syms: m.pick.slice(), mode: 'race', minutes: 8, bots: 3, session: m.session || 'full' }, true));
         qp.appendChild(b);
       }
     }

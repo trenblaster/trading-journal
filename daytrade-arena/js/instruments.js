@@ -199,7 +199,7 @@
   // '@1'…'@3' are small-cap runners generated from the match seed.
   const MARKETS = [
     { id: 'index', name: 'Index futures', icon: '📈', syms: ['ES', 'NQ', 'RTY'], pick: ['ES', 'NQ'], futures: true, desc: 'ES, NQ and RTY. Levels to the tick, 8:30 data, the cash open at 9:30, stop runs above and below the overnight range.' },
-    { id: 'commod', name: 'Oil & gold', icon: '🛢️', syms: ['CL', 'GC'], pick: ['CL', 'GC'], futures: true, desc: 'Crude and gold futures. Crude spikes on inventories and headlines; gold trends on rates.' },
+    { id: 'commod', name: 'Oil & gold', icon: '🛢️', syms: ['CL', 'GC'], pick: ['CL', 'GC'], futures: true, session: 'premkt', desc: 'Crude and gold futures. Gold opens at 8:20 and crude at 9:00; crude spikes on inventories and headlines, gold trends on rates.' },
     { id: 'futures', name: 'Futures mix', icon: '🌐', syms: ['ES', 'NQ', 'RTY', 'CL', 'GC'], pick: ['ES', 'NQ', 'CL', 'GC'], futures: true, desc: 'Stocks, tech, crude and gold, each with its own personality and its own key levels.' },
     { id: 'small', name: 'Small-cap runners', icon: '🚀', syms: ['@1', '@2', '@3', 'MEME', 'QBIT', 'BIOT'], pick: ['@1', '@2', '@3'], desc: 'Fresh gappers every match: premarket news, low floats, halts, VWAP and the premarket high decide everything.' },
     { id: 'stocks', name: 'Large caps', icon: '🏦', syms: ['SPYR', 'NOVA', 'CHIP', 'FINX', 'OILX'], pick: ['SPYR', 'NOVA', 'CHIP'], desc: 'Liquid stocks that move with the market. Clean trends, VWAP pullbacks and prior-day levels.' },

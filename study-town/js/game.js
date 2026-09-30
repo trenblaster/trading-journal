@@ -47,6 +47,10 @@
     library: { x: 35, y: 3, w: 5, h: 5, door: [37, 7] }
   };
   const BOARD = [13, 9];
+  const FISH = [
+    { name: 'minnow', value: 6 }, { name: 'carp', value: 10 }, { name: 'perch', value: 12 }, { name: 'trout', value: 16 },
+    { name: 'catfish', value: 20 }, { name: 'golden koi', value: 40 }
+  ];
   const GOALS = [
     { id: 'answer', text: 'Answer 10 questions', target: 10, reward: 60 },
     { id: 'combo', text: 'Get 5 right in a row', target: 5, reward: 80 },
@@ -474,7 +478,7 @@
   function target() {
     const f = facing();
     for (const n of NPCS) if (Math.hypot(n.x - f.ax, n.y - 4 - f.ay) < 12) return { kind: 'npc', npc: n, label: `Talk to ${n.name}` };
-    for (const k in BUILDINGS) { const b = BUILDINGS[k]; if (f.tx === b.door[0] && f.ty === b.door[1]) return { kind: 'door', id: k, label: { home: 'Enter your home', shop: 'Enter the General Store', library: 'Enter the Library (choose topics)' }[k] }; }
+    for (const k in BUILDINGS) { const b = BUILDINGS[k]; if (f.tx === b.door[0] && f.ty === b.door[1]) return { kind: 'door', id: k, label: { home: 'Enter your home', shop: 'Enter the General Store', library: 'Enter the Library (study sessions and topics)' }[k] }; }
     if (f.tx === BOARD[0] && f.ty === BOARD[1]) return { kind: 'board', label: 'Read the notice board' };
     const wi = S.weeds.findIndex((w) => w.x === f.tx && w.y === f.ty);
     if (wi >= 0) return { kind: 'weed', i: wi, label: 'Pull weed (answer a question)' };
@@ -487,6 +491,7 @@
       if (!p.watered) return { kind: 'water', i: pi, label: `Water ${CROPS[p.crop].name} (answer a question)` };
       return { kind: 'watered', i: pi, label: 'Watered today. Sleep at home to let it grow' };
     }
+    if (f.ty >= 0 && f.ty < MH && f.tx >= 0 && f.tx < MW && map[f.ty][f.tx] === 'w') return { kind: 'fish', label: 'Fish (answer a question to catch one)' };
     const d = decorAt(f.tx, f.ty);
     if (d === 'orchard') return { kind: 'fruit', key: `${f.tx},${f.ty}`, label: S.fruitDay[`${f.tx},${f.ty}`] === S.day ? 'Already picked today' : 'Shake tree for oranges' };
     if (d === 'fountain') return { kind: 'fountain', label: 'Toss a coin in the fountain' };
@@ -542,14 +547,28 @@
   }
 
   // Ask a question in the modal; resolves with { ok, fraction }.
-  function ask(reason, forceSubject) {
+  function ask(reason, forceSubject, inSession) {
     const q = pickQuestion(forceSubject);
-    return new Promise((resolve) => openQuestion(q, reason, (ok, fraction) => { record(q, ok, fraction); save(); updateHud(); resolve({ ok, fraction, q }); }));
+    return new Promise((resolve) => openQuestion(q, reason, (ok, fraction, stopped) => { record(q, ok, fraction); save(); updateHud(); resolve({ ok, fraction, q, stopped }); }, inSession));
+  }
+
+  // A run of questions back to back: study sessions, tutor practice.
+  async function runSession(title, count, subject, perCorrect) {
+    let right = 0, done = 0, earned = 0;
+    for (let i = 0; i < count; i++) {
+      const r = await ask(`${title} · Q${i + 1}${count < Infinity ? ' of ' + count : ''} · ${right} right so far`, subject, true);
+      done++;
+      if (r.ok) { right++; const c = perCorrect + comboBonus(); earned += c; S.coins += c; }
+      save(); updateHud();
+      if (r.stopped) break;
+    }
+    const pct = done ? Math.round((right / done) * 100) : 0;
+    dialog(title, `Session over: ${right} of ${done} correct (${pct}%). You earned ${earned} coins.${pct < 60 && done >= 3 ? ' Check Stats (I) to see which topics need work.' : ''}`);
   }
 
   const qm = $('#qmodal');
   let qState = null;
-  function openQuestion(q, reason, done) {
+  function openQuestion(q, reason, done, inSession) {
     closePanel();
     keys.clear();
     const subj = Bank.subjects[q.subject];
@@ -561,7 +580,7 @@
     $('#q-feedback').hidden = true; $('#q-feedback').innerHTML = '';
     const body = $('#q-body'); body.innerHTML = '';
     const foot = $('#q-foot'); foot.innerHTML = '';
-    qState = { q, done, answered: false, sel: 0, order: null };
+    qState = { q, done, answered: false, sel: 0, order: null, inSession };
 
     if (q.type === 'mcq') {
       const order = q.options.map((_, i) => i).sort(() => Math.random() - 0.5);
@@ -634,9 +653,11 @@
     fb.hidden = false;
     fb.className = 'q-feedback ' + (ok ? 'ok' : 'no');
     fb.innerHTML = `<p class="fb-title">${ok ? 'Correct!' : 'Not quite.'}</p><div>${html || ''}</div>`;
-    $('#q-foot').innerHTML = '<button class="btn btn-primary" id="q-next" type="button">Continue <span class="kbd">Enter</span></button>';
-    const finish = () => { if (!qState) return; qm.hidden = true; const d = qState.done; const f = frac != null ? frac : ok ? 1 : 0; qState = null; d(ok, f); };
-    $('#q-next').addEventListener('click', finish);
+    $('#q-foot').innerHTML = (qState.inSession ? '<button class="btn" id="q-stop" type="button">Stop session <span class="kbd">Esc</span></button>' : '') +
+      `<button class="btn btn-primary" id="q-next" type="button">${qState.inSession ? 'Next question' : 'Continue'} <span class="kbd">Enter</span></button>`;
+    const finish = (stop) => { if (!qState) return; qm.hidden = true; const d = qState.done; const f = frac != null ? frac : ok ? 1 : 0; qState = null; d(ok, f, stop === true); };
+    $('#q-next').addEventListener('click', () => finish(false));
+    if ($('#q-stop')) $('#q-stop').addEventListener('click', () => finish(true));
     setTimeout(() => $('#q-next') && $('#q-next').focus(), 30);
     qState.finish = finish;
     if (ok) burst();
@@ -655,7 +676,7 @@
     if (!t) return;
     busy = true;
     try {
-      if (t.kind === 'door') { if (t.id === 'home') openHome(); else if (t.id === 'shop') openShop(); else openStudy(); }
+      if (t.kind === 'door') { if (t.id === 'home') openHome(); else if (t.id === 'shop') openShop(); else await openLibrary(); }
       else if (t.kind === 'board') openBoard();
       else if (t.kind === 'npc') await talkNpc(t.npc);
       else if (t.kind === 'plant') openPlant(t.i);
@@ -681,6 +702,11 @@
       } else if (t.kind === 'fruit') {
         if (S.fruitDay[t.key] === S.day) toast('No oranges left today.');
         else { S.fruitDay[t.key] = S.day; coins(15, 'oranges'); save(); }
+      } else if (t.kind === 'fish') {
+        const r = await ask('Fishing');
+        if (r.ok) { const f = FISH[Math.floor(Math.random() * FISH.length)]; const c = f.value + comboBonus(); S.coins += c; S.fish = (S.fish || 0) + 1; toast(`Caught a ${f.name}! +${c} coins`); }
+        else toast('It got away. Cast again!');
+        save();
       } else if (t.kind === 'fountain') toast('Plink. A wish for top marks.');
       else if (t.kind === 'statue') toast('"The first lesson of economics is scarcity." — plaque by the river');
     } finally { busy = false; updateHud(); }
@@ -690,8 +716,13 @@
     n.talking = true;
     try {
       const subj = Bank.subjects[n.subject].name;
-      if (S.npcDay[n.id] === S.day) { dialog(n.name, n.tips[Math.floor(Math.random() * n.tips.length)]); return; }
-      const go = await choose(n.name, `Fancy a ${subj} challenge? Paper ${paperOf(n.subject)} style. Get it right for a big coin reward.`, ['Yes, challenge me', 'Maybe later']);
+      const tip = n.tips[Math.floor(Math.random() * n.tips.length)];
+      if (S.npcDay[n.id] === S.day) {
+        const c = await choose(n.name, `${tip} Want to practise some more ${subj}? (Paper ${paperOf(n.subject)}, your chosen topics.)`, ['5 questions', '10 questions', 'Keep going until I stop', 'Not now']);
+        if (c >= 0 && c < 3) { n.talking = false; await runSession(`Practice with ${n.name}`, [5, 10, Infinity][c], n.subject, 6); }
+        return;
+      }
+      const go = await choose(n.name, `Fancy a ${subj} challenge? Paper ${paperOf(n.subject)} style. Get it right for a big coin reward. After that you can practise with me as much as you like.`, ['Yes, challenge me', 'Maybe later']);
       if (go !== 0) return;
       const r = await ask(`${n.name}'s daily challenge`, n.subject);
       S.npcDay[n.id] = S.day;
@@ -804,6 +835,14 @@
     $$('#panel-body [data-claim]').forEach((b) => b.addEventListener('click', () => {
       const g = GOALS.find((x) => x.id === b.dataset.claim); S.daily.claimed[g.id] = true; coins(g.reward, 'daily goal'); save(); openBoard();
     }));
+  }
+
+  async function openLibrary() {
+    const s = S.study.subject;
+    const what = s === 'mix' ? 'all three subjects' : `${Bank.subjects[s].name}, Paper ${paperOf(s)}`;
+    const c = await choose('Library', `Study as many questions as you like here. Currently set to ${what}. Each correct answer earns 5 coins plus your combo bonus.`, ['Study 10 questions', 'Study 20 questions', 'Endless (stop any time)', 'Choose subject, paper and topics']);
+    if (c === 3) openStudy();
+    else if (c >= 0) await runSession('Library study session', [10, 20, Infinity][c], undefined, 5);
   }
 
   // Study settings: subject, paper, topics.
@@ -947,6 +986,7 @@
           <li><b>Plant</b> seeds in your plots, then <b>water</b> each one by answering a question. Wrong answer? You get the explanation and can try a new question.</li>
           <li><b>Sleep</b> at home to start the next day. Watered crops grow one stage. Harvest ripe crops for coins.</li>
           <li><b>Pull weeds</b> (each one is a question) and take <b>daily challenges</b> from the tutors: Prof. Hoot (Economics), Tally (Accounting) and Quill (English).</li>
+          <li><b>Study as much as you want</b>: run 10, 20 or endless question sessions in the <b>Library</b>, practise with any tutor after their daily challenge, or <b>fish</b> in the pond or river (every cast is a question).</li>
           <li>Spend coins at the <b>General Store</b> on better seeds, a bigger home, more plots, better watering cans and town decor.</li>
           <li>The <b>Library</b> across the bridge (or key <span class="kbd">T</span>) sets your subject, Paper 1 or 2, and topics. Paper 1 is mostly multiple choice. Paper 2 is structured: calculations, data response and essays you self-mark against a mark scheme.</li>
           <li>Questions you get wrong come back more often until you get them right.</li>
@@ -1039,7 +1079,7 @@
   // ------------------------------------------------------------------ keyboard
   window.addEventListener('keydown', (e) => {
     if (!qm.hidden && qState) {
-      if (qState.answered) { if ((e.key === 'Enter' || e.key === ' ') && document.activeElement && document.activeElement.id !== 'draft') { e.preventDefault(); qState.finish && qState.finish(); } return; }
+      if (qState.answered) { if (e.key === 'Escape' && qState.inSession) { e.preventDefault(); qState.finish(true); return; } if ((e.key === 'Enter' || e.key === ' ') && document.activeElement && document.activeElement.id !== 'draft' && document.activeElement.id !== 'q-stop') { e.preventDefault(); qState.finish && qState.finish(false); } return; }
       if (qState.order) {
         if (e.key === 'ArrowDown' || e.key === 'ArrowRight') { e.preventDefault(); highlight(qState.sel + 1); }
         else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') { e.preventDefault(); highlight(qState.sel - 1); }

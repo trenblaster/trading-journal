@@ -13,6 +13,7 @@ Open `index.html` in a browser. No build step and no server needed.
 - Move with the arrow keys (or WASD). Interact with Space, Enter or Z.
 - Plant seeds, then water each plot by answering a question. Sleep at home to grow watered crops, harvest them for coins.
 - Pull weeds (one question each) and take daily challenges from the three tutors.
+- Study without limits: 10, 20 or endless question sessions in the Library, practice rounds with any tutor after their daily challenge, and fishing in the pond or river (every cast is a question).
 - Spend coins on a bigger home, more plots, better seeds, watering cans and town decor.
 - The Library (or `T`) chooses the subject, Paper 1 or Paper 2, and the exact topics. You can also mix all three subjects.
 - Paper 1 is mostly multiple choice. Paper 2 is structured: calculations with fresh numbers each time, economics diagram questions, data response and essays, and English writing tasks you self-mark against a mark-scheme checklist.

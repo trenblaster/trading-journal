@@ -652,7 +652,7 @@
         switch (tpl.kind) {
           case 'mkt': return true;
           case 'any': return this.list.length > 0;
-          case 'large': return has((s) => !s.def.halts && s.def.sector !== 'Index');
+          case 'large': return has((s) => !s.def.halts && s.def.sector !== 'Index' && s.def.sector !== 'Commodity');
           case 'small': return has((s) => s.def.halts);
           case 'bio': return has((s) => s.def.sector === 'Biotech');
           case 'oil': return has((s) => s.def.oil);
@@ -676,11 +676,11 @@
       }
       const cands = this.list.filter((s) => {
         switch (tpl.kind) {
-          case 'large': return !s.def.halts && s.def.sector !== 'Index';
+          case 'large': return !s.def.halts && s.def.sector !== 'Index' && s.def.sector !== 'Commodity';
           case 'small': return s.def.halts;
           case 'bio': return s.def.sector === 'Biotech';
           case 'fin': return !!s.def.rates;
-          default: return s.def.sector !== 'Index';
+          default: return s.def.sector !== 'Index' && s.def.sector !== 'Commodity';
         }
       });
       if (!cands.length) return;

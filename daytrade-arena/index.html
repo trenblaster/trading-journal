@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day Trade Arena</title>
+<meta name="description" content="Multiplayer day-trading battles in the browser: same market, live order book, best trader wins.">
+<meta name="theme-color" content="#0b0e11">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/arena.css">
+</head>
+<body>
+<noscript><p style="padding:24px;color:#e8ebef;background:#0b0e11">Day Trade Arena needs JavaScript to run.</p></noscript>
+
+<!-- ============ HOME ============ -->
+<section id="home" class="screen active" aria-labelledby="homeTitle">
+  <canvas id="homeBg" class="home-bg" aria-hidden="true"></canvas>
+  <div class="home-wrap">
+    <header class="home-head">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 48 48" width="48" height="48"><rect x="6" y="18" width="7" height="18" rx="2" fill="var(--down)"/><rect x="9" y="12" width="1.5" height="30" fill="var(--down)"/><rect x="20" y="10" width="7" height="22" rx="2" fill="var(--up)"/><rect x="23" y="5" width="1.5" height="32" fill="var(--up)"/><rect x="34" y="6" width="7" height="16" rx="2" fill="var(--up)"/><rect x="37" y="2" width="1.5" height="26" fill="var(--up)"/><path d="M4 42 L16 34 L26 38 L44 22" stroke="var(--series-4)" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg>
+      </div>
+      <div>
+        <h1 id="homeTitle">Day Trade Arena</h1>
+        <p class="tagline">Multiplayer day-trading battles. Same market, same order book. Best trader wins.</p>
+      </div>
+    </header>
+
+    <div class="home-grid">
+      <div class="card profile-card">
+        <h2 class="card-title">Your trader</h2>
+        <label class="field">
+          <span>Name</span>
+          <input id="nameInput" maxlength="16" autocomplete="nickname" spellcheck="false" placeholder="Trader">
+        </label>
+        <div class="field">
+          <span>Avatar</span>
+          <div class="avatar-grid" id="avatarGrid" role="radiogroup" aria-label="Avatar"></div>
+        </div>
+      </div>
+
+      <div class="card play-card">
+        <h2 class="card-title">Play</h2>
+        <button id="btnHost" class="btn primary big">Host a game</button>
+        <p class="hint">Friends join from their own devices with your room code.</p>
+        <div class="join-row">
+          <input id="joinCode" maxlength="5" placeholder="ROOM CODE" autocomplete="off" spellcheck="false" aria-label="Room code">
+          <button id="btnJoin" class="btn">Join</button>
+        </div>
+        <button id="btnSolo" class="btn ghost">Practice vs bots (offline)</button>
+        <div class="home-status" id="homeStatus" role="status" aria-live="polite"></div>
+      </div>
+
+      <div class="card modes-card">
+        <h2 class="card-title">Modes</h2>
+        <div class="mode-tiles" id="modeTiles"></div>
+      </div>
+
+      <div class="card career-card">
+        <h2 class="card-title">Career</h2>
+        <div id="careerBody"></div>
+      </div>
+    </div>
+
+    <footer class="home-foot">
+      <button class="linkbtn" data-open="help">How to play</button>
+      <button class="linkbtn" data-open="keys">Hotkeys</button>
+      <button class="linkbtn" data-open="settings">Settings</button>
+      <a class="linkbtn" href="../">Back to Tradalytics</a>
+    </footer>
+  </div>
+</section>
+
+<!-- ============ LOBBY ============ -->
+<section id="lobby" class="screen" aria-label="Lobby">
+  <header class="lobby-top">
+    <button class="btn ghost small" id="btnLeaveLobby">← Leave</button>
+    <div class="room-chip">
+      <span class="room-label">Room</span>
+      <span class="room-code" id="roomCode">—</span>
+      <button class="btn small" id="btnCopyCode" title="Copy the room code">Copy code</button>
+      <button class="btn small" id="btnCopyLink" title="Copy an invite link">Copy invite link</button>
+    </div>
+    <div class="net-status" id="netStatus"></div>
+  </header>
+  <div class="lobby-grid">
+    <div class="card players-card">
+      <div class="card-head"><h2 class="card-title">Traders <span class="muted" id="playerCount"></span></h2></div>
+      <ol class="player-list" id="playerList"></ol>
+      <div class="bot-controls" id="botControls"></div>
+    </div>
+    <div class="card settings-card">
+      <div class="card-head"><h2 class="card-title">Game</h2><span class="muted" id="settingsNote"></span></div>
+      <div id="settingsBody"></div>
+    </div>
+    <div class="card chat-card">
+      <div class="card-head"><h2 class="card-title">Chat</h2></div>
+      <div class="chat-log" id="lobbyChat" aria-live="polite"></div>
+      <form class="chat-form" data-chat>
+        <input maxlength="200" placeholder="Say something…" aria-label="Chat message">
+        <button class="btn small">Send</button>
+      </form>
+      <div class="emote-row" data-emotes></div>
+    </div>
+  </div>
+  <footer class="lobby-foot">
+    <span class="muted small lobby-tip" id="lobbyTip"></span>
+    <span class="muted" id="readyNote"></span>
+    <button class="btn big" id="btnReady">I'm ready</button>
+    <button class="btn primary big" id="btnStart">Start match</button>
+  </footer>
+</section>
+
+<!-- ============ GAME ============ -->
+<section id="game" class="screen" aria-label="Match" data-mtab="chart">
+  <header class="hud">
+    <button class="icon-btn" id="btnMenu" aria-label="Match menu" title="Menu">☰</button>
+    <div class="hud-mode" id="hudMode"></div>
+    <div class="hud-clock">
+      <div class="clock-row"><span class="mkt-clock" id="hudClock">9:30:00</span><span class="time-left" id="hudLeft">—</span></div>
+      <div class="session-bar" aria-hidden="true"><span id="hudProgress"></span></div>
+    </div>
+    <div class="hud-stat">
+      <span class="stat-label">Account</span>
+      <span class="stat-value" id="hudEquity">—</span>
+      <span class="stat-sub" id="hudPct">—</span>
+    </div>
+    <div class="hud-stat">
+      <span class="stat-label">Day P&amp;L</span>
+      <span class="stat-value" id="hudPnl">—</span>
+      <span class="stat-sub" id="hudPnlSplit">—</span>
+    </div>
+    <div class="hud-stat hud-bp" title="Buying power used">
+      <canvas id="bpGauge" width="30" height="30" aria-hidden="true"></canvas>
+      <div><span class="stat-label">Buying power</span><span class="stat-value small" id="hudBp">—</span></div>
+    </div>
+    <div class="hud-stat hud-rank"><span class="stat-label">Rank</span><span class="stat-value" id="hudRank">—</span></div>
+    <div class="hud-extra" id="hudExtra"></div>
+    <button class="icon-btn" id="btnMute" aria-label="Sound on or off" title="Sound">🔊</button>
+    <button class="icon-btn" id="btnHelpKeys" aria-label="Hotkeys" title="Hotkeys (?)">⌨</button>
+  </header>
+
+  <div class="game-grid">
+    <aside class="col-left">
+      <div class="panel" data-tab="board">
+        <div class="panel-head"><h3>Watchlist</h3><span class="muted small" id="wlNote"></span></div>
+        <div class="watchlist" id="watchlist"></div>
+      </div>
+      <div class="panel grow" data-tab="board">
+        <div class="panel-head tabs" role="tablist">
+          <button class="tab active" data-boardtab="lb" role="tab">Leaderboard</button>
+          <button class="tab" data-boardtab="race" role="tab">Race</button>
+        </div>
+        <div class="board-body">
+          <ol class="leaderboard" id="leaderboard"></ol>
+          <div class="race-wrap" hidden><canvas id="raceChart"></canvas></div>
+        </div>
+      </div>
+      <div class="panel chat-panel" data-tab="chat">
+        <div class="panel-head"><h3>Chat</h3></div>
+        <div class="chat-log" id="gameChat" aria-live="polite"></div>
+        <form class="chat-form" data-chat><input maxlength="200" placeholder="Enter to chat…" aria-label="Chat message" id="gameChatInput"><button class="btn small">Send</button></form>
+        <div class="emote-row" data-emotes></div>
+      </div>
+    </aside>
+
+    <main class="col-center">
+      <div class="panel chart-panel" data-tab="chart">
+        <div class="chart-toolbar" id="chartToolbar">
+          <div class="sym-title" id="symTitle"></div>
+          <div class="tb-group" id="tfGroup" role="group" aria-label="Timeframe"></div>
+          <select id="chartType" class="select small" aria-label="Chart type">
+            <option value="candles">Candles</option><option value="heikin">Heikin-Ashi</option><option value="ohlc">OHLC bars</option><option value="line">Line</option><option value="area">Area</option>
+          </select>
+          <div class="tb-dropdown">
+            <button class="btn small" id="btnInd" aria-haspopup="true">Indicators ▾</button>
+            <div class="dropdown" id="indMenu" hidden></div>
+          </div>
+          <div class="tb-group" id="toolGroup" role="group" aria-label="Drawing tools"></div>
+          <button class="btn small" id="btnGrid" title="Show every symbol at once (G)" aria-pressed="false">⊞ Grid</button>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chart" aria-label="Price chart"></canvas>
+          <div class="chart-grid" id="chartGrid" hidden></div>
+          <button class="btn small live-btn" id="btnLive" hidden>Back to live ⟶</button>
+          <div class="halt-banner" id="haltBanner" hidden></div>
+          <div class="quick-bar" id="quickBar">
+            <button class="btn buy" data-quick="buy">Buy</button>
+            <span class="quick-qty" id="quickQty">100</span>
+            <button class="btn sell" data-quick="sell">Sell</button>
+            <button class="btn ghost" data-quick="flat">Flat</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel bottom-panel" data-tab="trade">
+        <div class="panel-head tabs" role="tablist">
+          <button class="tab active" data-btab="pos" role="tab">Positions</button>
+          <button class="tab" data-btab="ord" role="tab">Orders <span class="badge" id="ordCount"></span></button>
+          <button class="tab" data-btab="fills" role="tab">Fills</button>
+          <button class="tab" data-btab="trips" role="tab">Trades</button>
+          <button class="tab" data-btab="news" role="tab">News <span class="badge" id="newsCount"></span></button>
+        </div>
+        <div class="bottom-body" id="bottomBody"></div>
+      </div>
+    </main>
+
+    <aside class="col-right">
+      <div class="panel ladder-panel" data-tab="book">
+        <div class="panel-head"><h3>Price ladder</h3><span class="muted small" id="spreadNote"></span><button class="btn tiny" id="btnCenter" title="Recenter (Space)">Center</button></div>
+        <div class="ladder-wrap"><canvas id="ladder" aria-label="Price ladder: click a bid to buy, an ask to sell"></canvas></div>
+      </div>
+      <div class="panel ticket-panel" data-tab="trade" id="ticket"></div>
+      <div class="panel predict-panel" id="predictPanel" hidden></div>
+      <div class="panel tape-panel" data-tab="book">
+        <div class="panel-head tabs" role="tablist">
+          <button class="tab active" data-ttab="tape" role="tab">Time &amp; sales</button>
+          <button class="tab" data-ttab="depth" role="tab">Depth</button>
+          <span class="muted small tape-speed" id="tapeSpeed"></span>
+        </div>
+        <div class="tape-wrap"><canvas id="tape"></canvas><canvas id="depth" hidden></canvas></div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="news-ticker" id="newsTicker" aria-live="polite"><div class="ticker-track" id="tickerTrack"></div></div>
+
+  <nav class="mobile-tabs" aria-label="Match sections">
+    <button data-mtab="chart" class="active">📈<span>Chart</span></button>
+    <button data-mtab="book">📊<span>Book</span></button>
+    <button data-mtab="trade">🎫<span>Trade</span></button>
+    <button data-mtab="board">🏆<span>Board</span></button>
+    <button data-mtab="chat">💬<span>Chat</span></button>
+  </nav>
+
+  <div class="overlay-center" id="countdown" hidden></div>
+  <div class="overlay-center" id="intermission" hidden></div>
+  <div class="spectate-bar" id="spectateBar" hidden></div>
+</section>
+
+<!-- ============ RESULTS ============ -->
+<section id="results" class="screen" aria-label="Results">
+  <header class="results-head">
+    <div>
+      <h1 id="resTitle">Results</h1>
+      <p class="muted" id="resSub"></p>
+    </div>
+    <div class="results-actions">
+      <button class="btn" id="btnResLeave">Leave room</button>
+      <button class="btn primary" id="btnResLobby">Back to lobby</button>
+    </div>
+  </header>
+  <div class="podium" id="podium"></div>
+  <div class="results-tabs tabs" role="tablist">
+    <button class="tab active" data-rtab="stand">Standings</button>
+    <button class="tab" data-rtab="awards">Awards</button>
+    <button class="tab" data-rtab="race">Equity race</button>
+    <button class="tab" data-rtab="charts">Charts</button>
+    <button class="tab" data-rtab="replay">Replay</button>
+    <button class="tab" data-rtab="trips">My trades</button>
+    <button class="tab" data-rtab="export">Export</button>
+  </div>
+  <div class="results-body" id="resultsBody"></div>
+</section>
+
+<!-- ============ shared overlays ============ -->
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<div class="modal-root" id="modalRoot" hidden></div>
+<div class="ctx-menu" id="ctxMenu" hidden role="menu"></div>
+<canvas id="fxCanvas" class="fx-canvas" aria-hidden="true"></canvas>
+
+<script src="vendor/peerjs.min.js"></script>
+<script src="js/util.js"></script>
+<script src="js/config.js"></script>
+<script src="js/market.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/indicators.js"></script>
+<script src="js/bots.js"></script>
+<script src="js/host.js"></script>
+<script src="js/net.js"></script>
+<script src="js/client.js"></script>
+<script src="js/chart.js"></script>
+<script src="js/widgets.js"></script>
+<script src="js/fx.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/ui-core.js"></script>
+<script src="js/ui-home.js"></script>
+<script src="js/ui-game.js"></script>
+<script src="js/ui-results.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

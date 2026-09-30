@@ -124,7 +124,11 @@
     client.on('phase', (m) => {
       if (m.ph === 'lobby') { ui.results.stopReplay(); ui.lobby.resetKey(); ui.show('lobby'); ui.lobby.renderLobby(); }
     });
-    client.on('results', (r) => { ui.results.show(r); });
+    client.on('results', (r) => {
+      // "Switch market" from the match menu skips the results and goes straight back to the lobby.
+      if (client.skipResults) { client.skipResults = false; client.toLobby(); return; }
+      ui.results.show(r);
+    });
     client.on('disconnected', (reason) => onDisconnected(reason));
     client.on('hostClosed', (reason) => hostGone(reason));
     ui.game.bind(client);

@@ -707,7 +707,11 @@
       '-',
       { label: 'Copy room code (' + c.code + ')', run: async () => { if (await ui.copyText(c.code)) ui.toast('Copied', 'good'); } }
     ];
-    if (c.isHost) items.push({ label: 'End match now (host)', run: async () => { if (await ui.confirmBox('End the match?', 'Everyone goes to the results screen with the current standings.', 'End match')) c.abort(); } });
+    if (c.isHost) {
+      const others = [...(c.players || new Map()).values()].some((p) => !p.isBot && p.id !== c.me);
+      items.push({ label: 'Switch market or mode…', run: async () => { if (await ui.confirmBox('Switch market or mode?', 'This ends the match' + (others ? ' for everyone' : '') + ' and goes back to the lobby, where you pick index futures, oil & gold, small caps and more.', 'Back to lobby')) { c.skipResults = true; c.abort(); } } });
+      items.push({ label: 'End match now', run: async () => { if (await ui.confirmBox('End the match?', 'Everyone goes to the results screen with the current standings.', 'End match')) c.abort(); } });
+    }
     items.push({ label: 'Leave match', run: async () => { if (await ui.confirmBox('Leave the match?', c.isHost ? 'You are the host: leaving ends the match for everyone.' : 'Your account stays in the standings. You can rejoin with the room code.', 'Leave')) DTA.app.leave(); } });
     ui.ctxMenu(items, r.left, r.bottom + 4);
   }
@@ -1074,7 +1078,8 @@
       while (S.tapeCount.length > 2 && now - S.tapeCount[0][0] > 3000) S.tapeCount.shift();
       const f = S.tapeCount[0], l = S.tapeCount[S.tapeCount.length - 1];
       const rate = l[0] > f[0] ? ((l[1] - f[1]) / (l[0] - f[0])) * 1000 : 0;
-      $('#tapeSpeed').textContent = rate > 0 ? Math.round(rate) + ' prints/s' : '';
+      $('#tapeSpeed').textContent = rate > 0 ? Math.round(rate) + '/s' : '';
+      $('#tapeSpeed').title = 'Trade prints per second';
     }
     $('#btnLive').hidden = chart.right === null && !chart.yMan;
     refreshTicket();

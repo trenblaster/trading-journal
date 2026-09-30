@@ -160,7 +160,8 @@ textarea { resize: vertical; }
 /* Question card */
 .q-top { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 3px solid var(--ink); background: var(--paper-2); border-radius: 5px 5px 0 0; }
 .q-meta { display: flex; flex-wrap: wrap; gap: 6px; }
-.q-reason { font: 500 14px var(--f-display); color: var(--ink-soft); }
+.q-reason { font: 500 14px var(--f-display); color: var(--ink-soft); flex: 1; text-align: right; min-width: 0; }
+.q-close { margin-left: 4px; }
 .chip { display: inline-block; border: 1.5px solid var(--ink); border-radius: 4px; padding: 1px 7px; font-size: 13px; font-weight: 700; background: #fff; }
 .chip-econ { background: var(--econ); color: #fff; } .chip-acc { background: var(--acc); color: #fff; } .chip-eng { background: var(--eng); color: #fff; }
 .chip-soft { background: var(--paper); }
@@ -282,7 +283,7 @@ textarea { resize: vertical; }
 
   <div class="overlay-wrap" id="qmodal" hidden>
     <section class="qcard" role="dialog" aria-modal="true" aria-labelledby="q-stem">
-      <div class="q-top"><div class="q-meta" id="q-meta"></div><span class="q-reason" id="q-reason"></span><span class="q-timer" id="q-timer" hidden>0:00</span></div>
+      <div class="q-top"><div class="q-meta" id="q-meta"></div><span class="q-reason" id="q-reason"></span><span class="q-timer" id="q-timer" hidden>0:00</span><button class="x q-close" id="q-close" type="button" aria-label="Close question" title="Close (Esc). Skipping costs nothing">✕</button></div>
       <div class="q-scroll">
         <div class="q-graph" id="q-graph" hidden></div>
         <div class="q-stem" id="q-stem"></div>

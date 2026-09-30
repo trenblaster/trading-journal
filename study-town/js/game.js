@@ -703,7 +703,10 @@
   // Ask a question in the modal; resolves with { ok, fraction }.
   function ask(reason, forceSubject, inSession) {
     const q = pickQuestion(forceSubject);
-    return new Promise((resolve) => openQuestion(q, reason, (ok, fraction, stopped) => { record(q, ok, fraction); save(); updateHud(); checkQuests(); resolve({ ok, fraction, q, stopped }); }, inSession));
+    return new Promise((resolve) => openQuestion(q, reason, (ok, fraction, stopped, cancelled) => {
+      if (cancelled) { S.recent = S.recent.filter((id) => id !== q.id); resolve({ ok: false, fraction: 0, q, stopped: true, cancelled: true }); return; }
+      record(q, ok, fraction); save(); updateHud(); checkQuests(); resolve({ ok, fraction, q, stopped });
+    }, inSession));
   }
 
   // A run of questions back to back: study sessions, tutor practice, mock exams.
@@ -726,6 +729,7 @@
     try {
       for (let i = 0; i < count; i++) {
         const r = await ask(`${title} · Q${i + 1}${count < Infinity ? ' of ' + count : ''} · ${right} right so far`, subject, true);
+        if (r.cancelled) break;
         done++;
         if (r.ok) { right++; const c = perCorrect ? perCorrect + comboBonus() : 0; earned += c; S.coins += c; }
         save(); updateHud();
@@ -752,6 +756,7 @@
     while (hp > 0 && hearts > 0) {
       const bar = '■'.repeat(hp) + '□'.repeat(b.hp - hp);
       const r = await ask(`${b.name} ${bar} · You ${'♥'.repeat(hearts)}${'♡'.repeat(3 - hearts)}`, undefined, true);
+      if (r.cancelled) { dialog(b.name, 'You back away. Come back when you are ready!'); return; }
       if (r.ok) { const dmg = S.combo >= 3 ? 2 : 1; hp = Math.max(0, hp - dmg); hits++; b.hitT = performance.now(); if (dmg > 1) toast('Critical hit! (3+ combo)'); }
       else { hearts--; shake = 0.4; }
       save(); updateHud();
@@ -882,20 +887,28 @@
         body.appendChild(b);
       });
       highlight(0);
-      foot.innerHTML = '<span class="kbd-hint">Arrow keys + Enter, or press A–D</span>';
+      foot.innerHTML = '<span class="kbd-hint">Arrow keys + Enter, or press A–D · Esc or ✕ to skip</span>';
     } else if (q.type === 'num') {
       body.innerHTML = `<label class="num-label" for="num-in">Your answer</label><div class="num-row"><input id="num-in" inputmode="decimal" autocomplete="off" placeholder="e.g. 1250 or -0.4"><button class="btn" id="num-go" type="button">Check</button></div>`;
       $('#num-go').addEventListener('click', answerNum);
       $('#num-in').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); answerNum(); } });
       setTimeout(() => $('#num-in').focus(), 30);
-      foot.innerHTML = '<span class="kbd-hint">Type a number, then Enter. Commas and $ are fine.</span>';
+      foot.innerHTML = '<span class="kbd-hint">Type a number, then Enter. Commas and $ are fine · Esc or ✕ to skip</span>';
     } else {
       body.innerHTML = `<label class="num-label" for="draft">Write your answer or a plan (optional, kept only for this question)</label><textarea id="draft" rows="6" placeholder="Plan your points here..."></textarea><button class="btn" id="reveal" type="button">Show the mark scheme</button>`;
       $('#reveal').addEventListener('click', revealSelf);
-      foot.innerHTML = '<span class="kbd-hint">Self-marked. Tick each point you really made.</span>';
+      foot.innerHTML = '<span class="kbd-hint">Self-marked: tick each point you really made · Esc or ✕ to skip</span>';
     }
     qm.hidden = false;
   }
+  // Close a question without answering: nothing is recorded and nothing is lost.
+  function closeQuestion() {
+    if (!qState) return;
+    if (qState.answered) { qState.finish && qState.finish(true); return; }
+    qm.hidden = true; const d = qState.done; qState = null; d(false, 0, true, true);
+  }
+  $('#q-close').addEventListener('click', closeQuestion);
+
   function highlight(k) {
     if (!qState || !qState.order) return;
     qState.sel = (k + qState.order.length) % qState.order.length;
@@ -993,33 +1006,33 @@
         if (r.ok) {
           S.plot[t.i].watered = true; ensureDaily(); S.daily.water++; bump('water');
           coins(5 + CANS[S.can].bonus + comboBonus(), S.combo > 1 ? `combo ×${S.combo}` : 'watered');
-        } else toast('The soil stayed dry. Try again with a new question.');
+        } else if (!r.cancelled) toast('The soil stayed dry. Try again with a new question.');
         save();
       } else if (t.kind === 'watered') toast('Already watered today. Sleep at home to grow it.');
       else if (t.kind === 'weed') {
         const w = S.weeds[t.i];
         const r = await ask('Pulling a weed');
         if (r.ok) { S.weeds = S.weeds.filter((x) => x !== w); coins(8 + comboBonus(), 'weed pulled'); }
-        else toast('The weed held on. Try again.');
+        else if (!r.cancelled) toast('The weed held on. Try again.');
         save();
       } else if (t.kind === 'fruit') {
         if (S.fruitDay[t.key] === S.day) toast('No oranges left today.');
         else { S.fruitDay[t.key] = S.day; coins(15, 'oranges'); save(); }
       } else if (t.kind === 'fish') {
         const r = await ask('Fishing');
-        if (r.ok) { bump('fish'); award('fish', 'Caught'); } else toast('It got away. Cast again!');
+        if (r.ok) { bump('fish'); award('fish', 'Caught'); } else if (!r.cancelled) toast('It got away. Cast again!');
         save();
       } else if (t.kind === 'node') {
         const node = S.nodes[t.i], info = NODE_INFO[node.t];
         const r = await ask(info.verb);
         if (r.ok) { S.nodes = S.nodes.filter((n) => n !== node); bump(node.t); award({ crate: 'goods', rock: 'gems', page: 'pages' }[node.t], { crate: 'Found', rock: 'Mined', page: 'Found' }[node.t]); }
-        else toast('Not this time. Try again!');
+        else if (!r.cancelled) toast('Not this time. Try again!');
         save();
       } else if (t.kind === 'stall') {
         if (S.stallDay[t.i] === S.day) toast('This stall has sold out today.');
         else {
           const r = await ask('Making a sale at the market');
-          if (r.ok) { S.stallDay[t.i] = S.day; bump('stall'); coins(25 + comboBonus(), 'sale made'); } else toast('The customer walked off. Try again!');
+          if (r.ok) { S.stallDay[t.i] = S.day; bump('stall'); coins(25 + comboBonus(), 'sale made'); } else if (!r.cancelled) toast('The customer walked off. Try again!');
           save();
         }
       } else if (t.kind === 'gate') {
@@ -1043,6 +1056,7 @@
       const go = await choose(n.name, `Fancy a ${subj} challenge? Paper ${paperOf(n.subject)} style. Get it right for a big coin reward. After that you can practise with me as much as you like.`, ['Yes, challenge me', 'Maybe later']);
       if (go !== 0) return;
       const r = await ask(`${n.name}'s daily challenge`, n.subject);
+      if (r.cancelled) return;
       S.npcDay[n.id] = S.day;
       const reward = Math.round(35 * (r.q.type === 'self' ? Math.max(0.3, r.fraction) : r.ok ? 1 : 0.2));
       coins(reward, r.ok ? 'challenge won' : 'for trying');
@@ -1534,7 +1548,8 @@
   // ------------------------------------------------------------------ keyboard
   window.addEventListener('keydown', (e) => {
     if (!qm.hidden && qState) {
-      if (qState.answered) { if (e.key === 'Escape' && qState.inSession) { e.preventDefault(); qState.finish(true); return; } if ((e.key === 'Enter' || e.key === ' ') && document.activeElement && document.activeElement.id !== 'draft' && document.activeElement.id !== 'q-stop') { e.preventDefault(); qState.finish && qState.finish(false); } return; }
+      if (e.key === 'Escape') { e.preventDefault(); closeQuestion(); return; }
+      if (qState.answered) { if ((e.key === 'Enter' || e.key === ' ') && document.activeElement && document.activeElement.id !== 'draft' && document.activeElement.id !== 'q-stop') { e.preventDefault(); qState.finish && qState.finish(false); } return; }
       if (qState.order) {
         if (e.key === 'ArrowDown' || e.key === 'ArrowRight') { e.preventDefault(); highlight(qState.sel + 1); }
         else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') { e.preventDefault(); highlight(qState.sel - 1); }

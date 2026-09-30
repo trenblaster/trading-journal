@@ -1,7 +1,7 @@
 // Study Town: a cosy town-builder where every chore is a revision question.
 (function () {
   'use strict';
-  const TILE = 16, MW = 44, MH = 30;
+  const TILE = 16, MW = 88, MH = 60;
   let VW = 24, VH = 15; // view size in tiles; adapted to the screen shape in fit()
   const SAVE_KEY = 'study-town-save-v1';
   const $ = (s, r = document) => r.querySelector(s);
@@ -47,6 +47,42 @@
     library: { x: 35, y: 3, w: 5, h: 5, door: [37, 7] }
   };
   const BOARD = [13, 9];
+  // Deterministic per-tile noise so grass tufts do not flicker and the map is the same every visit.
+  const hash = (x, y) => { let h = (x * 374761393 + y * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) / 4294967295; };
+  const REGIONS = {
+    town: { name: 'Study Town', sub: 'Home sweet home' },
+    market: { name: 'Market Quarter', sub: 'Stalls, crates and the Invisible Hand' },
+    hills: { name: 'Ledger Hills', sub: 'Rocks to mine and the Ledger Golem' },
+    grove: { name: "Poet's Grove", sub: 'Lost pages and the Sphinx of Syntax' }
+  };
+  const regionAt = (tx, ty) => (tx > 43 ? (ty > 29 ? 'grove' : 'market') : (ty > 29 ? 'hills' : 'town'));
+  const GATES = {
+    east:  { region: 'market', ground: 'p', tiles: [[43, 10], [44, 10], [43, 11], [44, 11]] },
+    south: { region: 'hills',  ground: 'd', tiles: [[22, 29], [23, 29], [22, 30], [23, 30]] },
+    grove: { region: 'grove',  ground: 'd', tiles: [[65, 29], [66, 29], [65, 30], [66, 30]] },
+    grove2: { region: 'grove', ground: 'd', tiles: [[43, 44], [44, 44], [43, 45], [44, 45]] }
+  };
+  const STALLS = [[49, 7], [53, 7], [57, 7], [62, 7], [70, 7], [74, 7], [78, 7]];
+  const STALL_COLS = ['#d9546b', '#4a78c2', '#3f9a48', '#e8b33a', '#7a5b8c', '#e67e22', '#1f7f72'];
+  const BOSSES = [
+    { id: 'hand', name: 'The Invisible Hand', region: 'market', x: 66, y: 16, ground: 'c', hp: 6, reward: 300,
+      intro: 'You dare meddle in my market? Answer well, or I will set your price to zero!' },
+    { id: 'golem', name: 'The Ledger Golem', region: 'hills', x: 11, y: 53, ground: 'h', hp: 7, reward: 400,
+      intro: 'DEBIT. CREDIT. BALANCE. Prove your figures or be written off!' },
+    { id: 'sphinx', name: 'The Sphinx of Syntax', region: 'grove', x: 80, y: 35, ground: 'o', hp: 8, reward: 600,
+      intro: 'Many have come seeking the Grove\'s secrets. Few could tell a tricolon from a triangle.' }
+  ];
+  const NODE_INFO = {
+    crate: { region: 'market', ground: ['g', 'c'], count: 9, label: 'Open crate', verb: 'Opening a crate' },
+    rock:  { region: 'hills',  ground: ['h'],      count: 11, label: 'Mine rock', verb: 'Mining a rock' },
+    page:  { region: 'grove',  ground: ['o'],      count: 9, label: 'Pick up lost page', verb: 'Reading a lost page' }
+  };
+  const COLLECTIONS = {
+    fish: { name: 'Fish', items: ['minnow', 'carp', 'perch', 'trout', 'catfish', 'golden koi'] },
+    goods: { name: 'Market goods', items: ['spices', 'silk', 'tea', 'coffee beans', 'pearls', 'saffron'] },
+    gems: { name: 'Gems', items: ['copper ore', 'quartz', 'amethyst', 'emerald', 'ruby', 'diamond'] },
+    pages: { name: 'Lost pages', items: ['a sonnet', 'a travel diary', 'an editorial', 'a speech', 'a review', 'an ancient epic'] }
+  };
   const FISH = [
     { name: 'minnow', value: 6 }, { name: 'carp', value: 10 }, { name: 'perch', value: 12 }, { name: 'trout', value: 16 },
     { name: 'catfish', value: 20 }, { name: 'golden koi', value: 40 }
@@ -67,7 +103,8 @@
       weeds: [], npcDay: {}, player: { x: 8 * 16 + 8, y: 9 * 16 + 12, dir: 'down' },
       study: { subject: 'econ', paper: { econ: 1, acc: 1, eng: 1 }, topics: {} },
       stats: {}, topicStats: {}, total: { c: 0, w: 0 }, combo: 0, bestCombo: 0,
-      streak: { last: null, count: 0 }, daily: { date: null }, custom: [], recent: []
+      streak: { last: null, count: 0 }, daily: { date: null }, custom: [], recent: [],
+      unlocked: {}, nodes: [], stallDay: {}, bosses: {}, col: {}, cnt: {}, quest: 0, mocks: {}, crown: false
     };
   }
   function load() {
@@ -100,28 +137,47 @@
     for (let y = 0; y < MH; y++) { map.push(new Array(MW).fill('g')); }
     const set = (x, y, c) => { if (x >= 0 && y >= 0 && x < MW && y < MH) map[y][x] = c; };
     const rect = (x0, y0, x1, y1, c) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) set(x, y, c); };
-    // river with sandy banks
-    for (let y = 0; y < MH; y++) { set(30, y, 's'); set(31, y, 'w'); set(32, y, 'w'); set(33, y, 's'); }
-    // main road and bridge
-    rect(2, 10, 41, 11, 'p'); rect(30, 10, 33, 11, 'b');
+    const scatter = (x0, y0, x1, y1, c, density, only, salt) => {
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (map[y][x] === only && hash(x + salt, y * 3 + salt) < density) set(x, y, c);
+    };
+    // region grounds
+    rect(45, 2, 86, 28, 'g');           // Market Quarter
+    rect(1, 31, 42, 58, 'h');           // Ledger Hills
+    rect(45, 31, 86, 58, 'o');          // Poet's Grove
+    // ---------------- Town (north-west)
+    for (let y = 0; y < 60; y++) { set(30, y, 's'); set(31, y, 'w'); set(32, y, 'w'); set(33, y, 's'); }
+    rect(2, 10, 84, 11, 'p'); rect(30, 10, 33, 11, 'b');
     rect(8, 8, 8, 9, 'p'); rect(19, 8, 19, 9, 'p'); rect(37, 8, 37, 9, 'p');
-    // plaza
-    rect(18, 12, 27, 20, 'p');
-    // pond
+    rect(18, 12, 27, 20, 'p'); rect(22, 21, 23, 28, 'p');
     rect(3, 21, 10, 27, 's'); rect(4, 22, 9, 26, 'w');
-    // farm fence (bottom and sides)
     for (let x = 3; x <= 13; x++) set(x, 20, 'k');
     for (let y = 13; y <= 19; y++) { set(3, y, 'k'); set(13, y, 'k'); }
-    // border trees
-    for (let x = 0; x < MW; x++) { set(x, 0, 't'); set(x, 1, 't'); set(x, MH - 1, 't'); }
-    for (let y = 0; y < MH; y++) { set(0, y, 't'); set(MW - 1, y, 't'); }
-    set(31, 0, 'w'); set(32, 0, 'w'); set(31, 1, 'w'); set(32, 1, 'w'); set(31, MH - 1, 'w'); set(32, MH - 1, 'w');
-    // scattered trees, flowers and rocks
-    [[2, 3], [4, 6], [14, 2], [15, 5], [25, 3], [27, 6], [24, 23], [28, 25], [21, 26], [12, 26], [36, 14], [40, 16], [38, 22], [41, 25], [35, 26], [2, 17], [15, 16], [28, 2], [41, 3], [34, 18]]
+    [[2, 3], [4, 6], [14, 2], [15, 5], [25, 3], [27, 6], [24, 26], [28, 25], [19, 26], [12, 26], [36, 14], [40, 16], [38, 22], [41, 25], [35, 26], [2, 17], [15, 16], [28, 2], [41, 3], [34, 18]]
       .forEach(([x, y]) => set(x, y, 't'));
     [[5, 9], [12, 6], [16, 13], [29, 13], [36, 12], [39, 19], [26, 24], [11, 28], [22, 8], [24, 7], [40, 8], [2, 12], [16, 19], [35, 20]]
       .forEach(([x, y]) => set(x, y, 'f'));
     [[29, 22], [37, 25], [15, 27], [40, 12]].forEach(([x, y]) => set(x, y, 'r'));
+    // ---------------- Market Quarter (north-east)
+    rect(57, 13, 74, 22, 'c'); rect(65, 12, 66, 12, 'c'); rect(65, 23, 66, 28, 'p');
+    scatter(46, 2, 86, 28, 't', 0.05, 'g', 7); scatter(46, 2, 86, 28, 'f', 0.07, 'g', 11);
+    for (let x = 46; x <= 86; x++) { set(x, 9, 'g'); set(x, 12, map[12][x] === 'c' ? 'c' : 'g'); }
+    // ---------------- Ledger Hills (south-west)
+    rect(22, 29, 23, 44, 'd'); rect(3, 44, 42, 45, 'd'); rect(30, 44, 33, 45, 'b'); rect(8, 36, 9, 43, 'd'); rect(10, 46, 11, 50, 'd');
+    scatter(1, 31, 42, 58, 'r', 0.05, 'h', 3); scatter(1, 31, 42, 58, 't', 0.05, 'h', 5);
+    // ---------------- Poet's Grove (south-east)
+    rect(65, 29, 66, 40, 'd'); rect(43, 44, 64, 45, 'd'); rect(65, 40, 80, 41, 'd'); rect(63, 40, 64, 45, 'd'); rect(79, 37, 80, 40, 'd');
+    rect(69, 47, 77, 53, 'w'); rect(68, 48, 68, 52, 'w'); rect(78, 48, 78, 52, 'w');
+    scatter(45, 31, 86, 58, 't', 0.16, 'o', 13); scatter(45, 31, 86, 58, 'f', 0.1, 'o', 17);
+    // ---------------- borders and region walls (gates are cut through them)
+    for (let x = 0; x < MW; x++) { set(x, 0, 't'); set(x, 1, 't'); set(x, MH - 1, 't'); set(x, 29, 't'); set(x, 30, 't'); }
+    for (let y = 0; y < MH; y++) { set(0, y, 't'); set(MW - 1, y, 't'); set(43, y, 't'); set(44, y, 't'); }
+    for (const y of [0, 1, 29, 30, MH - 1]) { set(31, y, 'w'); set(32, y, 'w'); }
+    for (const k in GATES) for (const [x, y] of GATES[k].tiles) set(x, y, GATES[k].ground);
+    // keep key spots clear of scattered trees and rocks
+    const clear = (x0, y0, x1, y1, c) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (map[y][x] === 't' || map[y][x] === 'r' || map[y][x] === 'f') set(x, y, c); };
+    for (const st of STALLS) clear(st[0] - 1, st[1] - 1, st[0] + 2, st[1] + 2, 'g');
+    for (const b of BOSSES) clear(b.x - 2, b.y - 2, b.x + 2, b.y + 2, b.ground);
+    clear(4, 32, 11, 35, 'h');
   })();
 
   function inBuilding(tx, ty) {
@@ -139,7 +195,27 @@
     if (inBuilding(tx, ty)) return true;
     if (tx === BOARD[0] && ty === BOARD[1]) return true;
     if (decorAt(tx, ty) && decorAt(tx, ty) !== 'flowers') return true;
+    if (gateAt(tx, ty) && !S.unlocked[GATES[gateAt(tx, ty)].region]) return true;
+    if (stallAt(tx, ty) >= 0 || bossAt(tx, ty)) return true;
     return false;
+  }
+  function gateAt(tx, ty) { for (const k in GATES) if (GATES[k].tiles.some(([x, y]) => x === tx && y === ty)) return k; return null; }
+  function stallAt(tx, ty) { return STALLS.findIndex(([x, y]) => tx >= x && tx <= x + 1 && ty >= y && ty <= y + 1); }
+  function bossAt(tx, ty) { return BOSSES.find((b) => tx >= b.x - 1 && tx <= b.x && ty >= b.y - 1 && ty <= b.y) || null; }
+  function nodeAt(tx, ty) { return S.nodes.findIndex((n) => n.x === tx && n.y === ty); }
+  // Scatter today's crates, rocks and pages across the unlocked regions.
+  function spawnNodes() {
+    S.nodes = [];
+    for (const t in NODE_INFO) {
+      const info = NODE_INFO[t];
+      if (!S.unlocked[info.region]) continue;
+      for (let tries = 0, n = 0; n < info.count && tries < 800; tries++) {
+        const x = 2 + Math.floor(Math.random() * (MW - 4)), y = 2 + Math.floor(Math.random() * (MH - 4));
+        if (regionAt(x, y) !== info.region || !info.ground.includes(map[y][x]) || solid(x, y) || nodeAt(x, y) >= 0) continue;
+        if (gateAt(x, y)) continue;
+        S.nodes.push({ t, x, y }); n++;
+      }
+    }
   }
 
   // ------------------------------------------------------------------ canvas setup
@@ -168,66 +244,129 @@
   }
   window.addEventListener('resize', fit);
 
-  // Deterministic per-tile noise so grass tufts do not flicker.
-  const hash = (x, y) => { let h = (x * 374761393 + y * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) / 4294967295; };
   const R = (c, x, y, w, h) => { ctx.fillStyle = c; ctx.fillRect(x | 0, y | 0, w, h); };
+
+  // ---- terrain: textured tiles are pre-rendered once per type and variant, then blitted.
+  const GROUND = {
+    g: { base: '#7fc756', dark: '#6ab447', light: '#95d66a' },
+    o: { base: '#5fa65a', dark: '#4c9150', light: '#77bd6c' },
+    h: { base: '#a9b95c', dark: '#94a44d', light: '#c0cf72' },
+    p: { base: '#e6cc96', dark: '#d2b47a', light: '#f3dfb4' },
+    d: { base: '#c89b64', dark: '#b0834f', light: '#d9b27e' },
+    c: { base: '#cbc3b3', dark: '#aaa293', light: '#dcd6c9' },
+    s: { base: '#f0dca0', dark: '#dcc584', light: '#fbecc0' }
+  };
+  const GRASSY = { g: 'g', t: 'g', f: 'g', k: 'g', r: 'g', o: 'o', h: 'h' };
+  const tileCache = {};
+  function tileTex(kind, v) {
+    const key = kind + v;
+    if (tileCache[key]) return tileCache[key];
+    const c = document.createElement('canvas'); c.width = c.height = 16;
+    const x = c.getContext('2d'), G = GROUND[kind];
+    const r = (col, a, b2, w, h) => { x.fillStyle = col; x.fillRect(a, b2, w, h); };
+    r(G.base, 0, 0, 16, 16);
+    const rnd = (i) => hash(v * 31 + i * 7, kind.charCodeAt(0) + i * 13);
+    if (kind === 'c') {
+      // cobblestones: offset rows of rounded stones
+      for (let row = 0; row < 4; row++) for (let col = -1; col < 3; col++) {
+        const sx = col * 7 + (row % 2 ? 3 : 0) + (v % 2), sy = row * 4;
+        r(G.dark, sx, sy + 3, 6, 1); r(G.dark, sx + 6, sy, 1, 4); r(G.light, sx + 1, sy, 3, 1);
+      }
+    } else if (kind === 'p' || kind === 'd' || kind === 's') {
+      for (let i = 0; i < 6; i++) { const px = rnd(i) * 15 | 0, py = rnd(i + 9) * 15 | 0; r(i % 3 ? G.dark : G.light, px, py, i % 2 ? 2 : 1, 1); }
+      if (kind === 'd' && v % 3 === 0) { r('#8e8a86', 4 + v % 7, 9, 2, 2); r('#b9b4ae', 4 + v % 7, 9, 1, 1); }
+    } else {
+      for (let i = 0; i < 7; i++) {
+        const px = rnd(i) * 14 | 0, py = 2 + (rnd(i + 5) * 12 | 0);
+        r(G.dark, px, py, 1, 2); r(G.dark, px + 1, py + 1, 1, 1);
+        if (i < 3) r(G.light, (rnd(i + 20) * 14) | 0, (rnd(i + 30) * 14) | 0, 2, 1);
+      }
+      if (kind === 'o' && v === 5) { r('#e9d7b0', 10, 10, 3, 2); r('#c0392b', 10, 9, 3, 1); r('#fff', 11, 9, 1, 1); }
+      if (kind === 'h' && v % 4 === 1) { r('#8e8a86', 3 + v, 11, 2, 1); r('#b9b4ae', 9, 5, 1, 1); }
+    }
+    return (tileCache[key] = c);
+  }
+  const REGION_GRASS = { town: 'g', market: 'g', hills: 'h', grove: 'o' };
+  // Grass under trees, rocks, flowers and fences takes the colour of the region it is in.
+  function grassKindAt(tx, ty) { const c = tileAt(tx, ty); if (c === 'o' || c === 'h' || c === 'g') return c; return GRASSY[c] ? REGION_GRASS[regionAt(tx, ty)] : null; }
+  function tileAt(tx, ty) { return tx < 0 || ty < 0 || tx >= MW || ty >= MH ? 't' : map[ty][tx]; }
 
   function drawGround(tx, ty, sx, sy, t) {
     const c = map[ty][tx], n = hash(tx, ty);
-    if (c === 'w') {
+    if (c === 'w' || c === 'b') {
       R('#4a9ee0', sx, sy, 16, 16);
-      const ph = Math.floor(t / 600 + n * 4) % 2;
-      R('#79c1f2', sx + 2 + ph * 6, sy + 5, 4, 1); R('#79c1f2', sx + 9 - ph * 5, sy + 11, 4, 1);
-      if (ty > 0 && map[ty - 1][tx] !== 'w' && map[ty - 1][tx] !== 'b') R('#d6f0ff', sx, sy, 16, 2);
+      const deep = ['w', 'b'].includes(tileAt(tx - 1, ty)) && ['w', 'b'].includes(tileAt(tx + 1, ty)) && tileAt(tx, ty - 1) === 'w' && tileAt(tx, ty + 1) === 'w';
+      if (deep) R('#4396da', sx + 2, sy + 2, 12, 12);
+      const ph = (t / 700 + n * 6) % 4 | 0;
+      R('#7cc3f0', sx + ((n * 9 + ph * 3) % 11 | 0), sy + 4 + (ph % 2) * 6, 4, 1);
+      if (n > 0.6 && ((t / 300 + n * 10) | 0) % 7 === 0) R('#ffffff', sx + (n * 13 | 0), sy + 9, 1, 1);
+      const land = (x2, y2) => !['w', 'b'].includes(tileAt(x2, y2));
+      if (land(tx, ty - 1)) { R('#e4efd0', sx, sy, 16, 2); R('#a9d8f5', sx, sy + 2, 16, 1); }
+      if (land(tx - 1, ty)) R('#a9d8f5', sx, sy, 1, 16);
+      if (land(tx + 1, ty)) R('#a9d8f5', sx + 15, sy, 1, 16);
+      if (land(tx, ty + 1)) R('#3a86c7', sx, sy + 15, 16, 1);
+      if (c === 'b') {
+        const vert = tileAt(tx, ty - 1) === 'b' || tileAt(tx, ty + 1) === 'b';
+        R('#b8834e', sx, sy, 16, 16);
+        if (vert) { for (let i = 0; i < 4; i++) R('#8f6036', sx, sy + i * 4 + 3, 16, 1); R('#6d4526', sx, sy, 2, 16); R('#6d4526', sx + 14, sy, 2, 16); }
+        else { for (let i = 0; i < 4; i++) R('#8f6036', sx + i * 4 + 3, sy, 1, 16); if (tileAt(tx, ty - 1) !== 'b') R('#6d4526', sx, sy, 16, 2); if (tileAt(tx, ty + 1) !== 'b') R('#6d4526', sx, sy + 14, 16, 2); }
+      }
       return;
     }
-    if (c === 'b') {
-      R('#4a9ee0', sx, sy, 16, 16);
-      R('#b8834e', sx, sy + 1, 16, 14);
-      for (let i = 0; i < 4; i++) R('#8f6036', sx + i * 4 + 3, sy + 1, 1, 14);
-      if (map[ty - 1][tx] !== 'b') R('#6d4526', sx, sy, 16, 2);
-      if (map[ty + 1][tx] !== 'b') R('#6d4526', sx, sy + 14, 16, 2);
-      return;
+    const kind = GRASSY[c] ? grassKindAt(tx, ty) : (GROUND[c] ? c : 'g');
+    ctx.drawImage(tileTex(kind, (n * 8) | 0), sx, sy);
+    // soft grass fringe where paths meet grass
+    if (!GRASSY[c]) {
+      const edges = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+      for (const [dx, dy] of edges) {
+        const gk = grassKindAt(tx + dx, ty + dy);
+        if (!gk) continue;
+        const G = GROUND[gk];
+        for (let i = 0; i < 16; i += 2) {
+          const len = 1 + ((hash(tx * 16 + i, ty * 5 + dx * 3 + dy) * 3) | 0);
+          if (dy === -1) R(G.base, sx + i, sy, 2, len); if (dy === 1) R(G.base, sx + i, sy + 16 - len, 2, len);
+          if (dx === -1) R(G.base, sx, sy + i, len, 2); if (dx === 1) R(G.base, sx + 16 - len, sy + i, len, 2);
+        }
+      }
     }
-    if (c === 'p') {
-      R('#e6cc96', sx, sy, 16, 16);
-      if (n > 0.5) R('#d2b47a', sx + (n * 13 | 0), sy + ((n * 97) % 13 | 0), 2, 1);
-      if (n < 0.3) R('#f1dcae', sx + 3, sy + 9, 2, 1);
-      return;
-    }
-    if (c === 's') {
-      R('#f0dca0', sx, sy, 16, 16);
-      if (n > 0.6) R('#dcc584', sx + 5, sy + 7, 1, 1);
-      return;
-    }
-    // grass base for g, t, f, k, r
-    R('#7fc756', sx, sy, 16, 16);
-    if (n > 0.35) { R('#69b046', sx + (n * 11 | 0), sy + ((n * 53) % 12 | 0) + 2, 1, 2); R('#69b046', sx + (n * 11 | 0) + 2, sy + ((n * 53) % 12 | 0) + 3, 1, 1); }
-    if (n < 0.2) R('#96d86a', sx + 9, sy + 4, 2, 1);
     if (c === 'f') {
-      const cols = ['#ffffff', '#ffd23f', '#ff7aa2', '#b58cff'];
+      const cols = ['#ffffff', '#ffd23f', '#ff7aa2', '#b58cff', '#7fdcff'];
       for (let i = 0; i < 3; i++) {
         const fx = sx + 2 + ((n * 97 + i * 5) % 11 | 0), fy = sy + 3 + ((n * 61 + i * 4) % 10 | 0);
-        R('#4f8f33', fx + 1, fy + 2, 1, 2); R(cols[(i + (n * 4 | 0)) % 4], fx, fy, 3, 2); R('#f7b733', fx + 1, fy, 1, 1);
+        const sway = ((t / 600 + n * 5 + i) | 0) % 2;
+        R('#3f8a2e', fx + 1, fy + 2, 1, 3); R(cols[(i + (n * 5 | 0)) % 5], fx + sway, fy, 3, 2); R('#f7b733', fx + 1 + sway, fy, 1, 1);
       }
     }
     if (c === 'k') {
-      const horiz = map[ty][tx - 1] === 'k' || map[ty][tx + 1] === 'k';
-      if (horiz) { R('#8b5a2b', sx, sy + 6, 16, 2); R('#8b5a2b', sx, sy + 11, 16, 2); R('#6b4220', sx + 7, sy + 4, 3, 11); }
+      const horiz = tileAt(tx - 1, ty) === 'k' || tileAt(tx + 1, ty) === 'k';
+      if (horiz) { R('#8b5a2b', sx, sy + 6, 16, 2); R('#8b5a2b', sx, sy + 11, 16, 2); R('#a8733f', sx, sy + 6, 16, 1); R('#6b4220', sx + 7, sy + 4, 3, 11); }
       else { R('#8b5a2b', sx + 6, sy, 2, 16); R('#8b5a2b', sx + 9, sy, 2, 16); R('#6b4220', sx + 5, sy + 6, 7, 3); }
     }
     if (c === 'r') {
-      R('#8e8a86', sx + 2, sy + 6, 12, 8); R('#a9a5a0', sx + 3, sy + 5, 9, 4); R('#6f6b67', sx + 2, sy + 13, 12, 1); R('#c4c0bb', sx + 5, sy + 6, 3, 1);
+      R('rgba(0,0,0,0.18)', sx + 2, sy + 12, 13, 3);
+      R('#7d7873', sx + 2, sy + 5, 12, 9); R('#9a958f', sx + 3, sy + 4, 10, 6); R('#b9b4ae', sx + 5, sy + 5, 4, 2); R('#5f5b57', sx + 2, sy + 13, 12, 1);
     }
   }
 
-  function drawTree(sx, sy, fruit) {
-    R('rgba(0,0,0,0.18)', sx + 2, sy + 13, 12, 3);
-    R('#7a4a26', sx + 6, sy + 8, 4, 7); R('#5d371b', sx + 6, sy + 8, 1, 7);
-    R('#2f7a3a', sx + 1, sy - 6, 14, 14); R('#2f7a3a', sx - 1, sy - 3, 18, 9);
-    R('#3f9a48', sx + 2, sy - 7, 12, 12); R('#3f9a48', sx, sy - 4, 16, 7);
-    R('#5bb85e', sx + 4, sy - 6, 6, 4); R('#5bb85e', sx + 2, sy - 3, 3, 2);
-    if (fruit) { R('#f08a1c', sx + 3, sy - 1, 3, 3); R('#f08a1c', sx + 10, sy - 4, 3, 3); R('#f08a1c', sx + 7, sy + 2, 3, 3); }
+  // Trees differ by region: round oaks in town and market, dark pines in the grove, sparse firs in the hills.
+  function drawTree(sx, sy, fruit, tx, ty, t) {
+    const reg = tx != null ? regionAt(tx, ty) : 'town';
+    const n = tx != null ? hash(tx * 3, ty * 7) : 0.5;
+    const sway = t ? Math.round(Math.sin(t / 900 + n * 6) * 0.6) : 0;
+    R('rgba(0,0,0,0.2)', sx + 1, sy + 12, 14, 4);
+    if (reg === 'grove' || reg === 'hills') {
+      const dark = reg === 'grove' ? '#1f5a3a' : '#35683a', mid = reg === 'grove' ? '#2c7449' : '#4a8446', lite = reg === 'grove' ? '#3f8f5a' : '#66a55a';
+      R('#6b4220', sx + 7, sy + 9, 3, 6);
+      for (let i = 0; i < 4; i++) { const w = 6 + i * 3; R(dark, sx + 8 - w / 2 + sway, sy - 10 + i * 5, w, 5); R(mid, sx + 8 - w / 2 + 1 + sway, sy - 10 + i * 5, w - 3, 3); }
+      R(lite, sx + 7 + sway, sy - 10, 2, 2);
+      return;
+    }
+    R('#7a4a26', sx + 6, sy + 7, 4, 8); R('#5d371b', sx + 6, sy + 7, 1, 8);
+    R('#2f7a3a', sx + 1 + sway, sy - 6, 14, 14); R('#2f7a3a', sx - 1 + sway, sy - 3, 18, 9);
+    R('#3f9a48', sx + 2 + sway, sy - 7, 12, 12); R('#3f9a48', sx + sway, sy - 4, 16, 7);
+    R('#5bb85e', sx + 4 + sway, sy - 6, 6, 4); R('#5bb85e', sx + 2 + sway, sy - 3, 3, 2); R('#78cf6f', sx + 5 + sway, sy - 6, 2, 1);
+    R('#256b33', sx + 3 + sway, sy + 4, 10, 2);
+    if (fruit) { R('#f08a1c', sx + 3 + sway, sy - 1, 3, 3); R('#f08a1c', sx + 10 + sway, sy - 4, 3, 3); R('#f08a1c', sx + 7 + sway, sy + 2, 3, 3); R('#ffd08a', sx + 3 + sway, sy - 1, 1, 1); }
   }
 
   function drawHouse(level, sx, sy) {
@@ -448,6 +587,8 @@
   function DIRS_OK(d) { return ['up', 'down', 'left', 'right'].includes(d) ? d : 'down'; }
   const P = { x: S.player.x, y: S.player.y, dir: DIRS_OK(S.player.dir), moving: false, anim: 0 };
   const keys = new Set();
+  let shiftDown = false;
+  const dust = [];
   const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
   const KEYMAP = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', w: 'up', s: 'down', a: 'left', d: 'right', W: 'up', S: 'down', A: 'left', D: 'right' };
   function blockedAt(x, y) {
@@ -460,13 +601,18 @@
     const last = order[order.length - 1];
     for (const k of order) { const v = DIRS[k]; dx += v[0]; dy += v[1]; }
     P.moving = dx !== 0 || dy !== 0;
-    if (!P.moving) { P.anim = 0; return; }
+    if (!P.moving) { P.anim = 0; P.hold = 0; return; }
     if (last) P.dir = last;
-    const len = Math.hypot(dx, dy), sp = 72 * dt;
+    // Speed ramps up the longer a direction is held; Shift sprints.
+    P.hold = (P.hold || 0) + dt;
+    const ramp = Math.min(1, P.hold / 0.7), speed = (70 + 80 * ramp) * (shiftDown ? 1.4 : 1);
+    P.speed = speed;
+    const len = Math.hypot(dx, dy), sp = speed * dt;
     const mx = (dx / len) * sp, my = (dy / len) * sp;
     if (!blockedAt(P.x + mx, P.y)) P.x += mx;
     if (!blockedAt(P.x, P.y + my)) P.y += my;
-    P.anim += dt;
+    P.anim += dt * (speed / 72);
+    if (speed > 120 && Math.random() < dt * 12) dust.push({ x: P.x + (Math.random() - 0.5) * 6, y: P.y - 1, life: 0.4 });
   }
   function facing() {
     const [dx, dy] = DIRS[P.dir];
@@ -478,7 +624,7 @@
   function target() {
     const f = facing();
     for (const n of NPCS) if (Math.hypot(n.x - f.ax, n.y - 4 - f.ay) < 12) return { kind: 'npc', npc: n, label: `Talk to ${n.name}` };
-    for (const k in BUILDINGS) { const b = BUILDINGS[k]; if (f.tx === b.door[0] && f.ty === b.door[1]) return { kind: 'door', id: k, label: { home: 'Enter your home', shop: 'Enter the General Store', library: 'Enter the Library (study sessions and topics)' }[k] }; }
+    for (const k in BUILDINGS) { const b = BUILDINGS[k]; if (f.tx === b.door[0] && f.ty === b.door[1]) return { kind: 'door', id: k, label: { home: 'Enter your home', shop: 'Enter the General Store', library: 'Enter the Exam Hall (mock exams)' }[k] }; }
     if (f.tx === BOARD[0] && f.ty === BOARD[1]) return { kind: 'board', label: 'Read the notice board' };
     const wi = S.weeds.findIndex((w) => w.x === f.tx && w.y === f.ty);
     if (wi >= 0) return { kind: 'weed', i: wi, label: 'Pull weed (answer a question)' };
@@ -491,6 +637,14 @@
       if (!p.watered) return { kind: 'water', i: pi, label: `Water ${CROPS[p.crop].name} (answer a question)` };
       return { kind: 'watered', i: pi, label: 'Watered today. Sleep at home to let it grow' };
     }
+    const bs = bossAt(f.tx, f.ty);
+    if (bs) return { kind: 'boss', boss: bs, label: S.bosses[bs.id] ? `Rematch ${bs.name} (practice)` : `Challenge ${bs.name}` };
+    const si = stallAt(f.tx, f.ty);
+    if (si >= 0) return { kind: 'stall', i: si, label: S.stallDay[si] === S.day ? 'Sold out today. Come back tomorrow' : 'Make a sale (answer a question)' };
+    const ni = nodeAt(f.tx, f.ty);
+    if (ni >= 0) return { kind: 'node', i: ni, label: `${NODE_INFO[S.nodes[ni].t].label} (answer a question)` };
+    const gk = gateAt(f.tx, f.ty);
+    if (gk && !S.unlocked[GATES[gk].region]) return { kind: 'gate', gate: gk, label: `Locked: the way to ${REGIONS[GATES[gk].region].name}` };
     if (f.ty >= 0 && f.ty < MH && f.tx >= 0 && f.tx < MW && map[f.ty][f.tx] === 'w') return { kind: 'fish', label: 'Fish (answer a question to catch one)' };
     const d = decorAt(f.tx, f.ty);
     if (d === 'orchard') return { kind: 'fruit', key: `${f.tx},${f.ty}`, label: S.fruitDay[`${f.tx},${f.ty}`] === S.day ? 'Already picked today' : 'Shake tree for oranges' };
@@ -549,21 +703,156 @@
   // Ask a question in the modal; resolves with { ok, fraction }.
   function ask(reason, forceSubject, inSession) {
     const q = pickQuestion(forceSubject);
-    return new Promise((resolve) => openQuestion(q, reason, (ok, fraction, stopped) => { record(q, ok, fraction); save(); updateHud(); resolve({ ok, fraction, q, stopped }); }, inSession));
+    return new Promise((resolve) => openQuestion(q, reason, (ok, fraction, stopped) => { record(q, ok, fraction); save(); updateHud(); checkQuests(); resolve({ ok, fraction, q, stopped }); }, inSession));
   }
 
-  // A run of questions back to back: study sessions, tutor practice.
-  async function runSession(title, count, subject, perCorrect) {
-    let right = 0, done = 0, earned = 0;
-    for (let i = 0; i < count; i++) {
-      const r = await ask(`${title} · Q${i + 1}${count < Infinity ? ' of ' + count : ''} · ${right} right so far`, subject, true);
-      done++;
-      if (r.ok) { right++; const c = perCorrect + comboBonus(); earned += c; S.coins += c; }
-      save(); updateHud();
-      if (r.stopped) break;
+  // A run of questions back to back: study sessions, tutor practice, mock exams.
+  // opts: { timeLimit (seconds), silent (no summary dialog) }
+  async function runSession(title, count, subject, perCorrect, opts = {}) {
+    let right = 0, done = 0, earned = 0, timedOut = false;
+    const t0 = Date.now();
+    const timer = $('#q-timer');
+    let iv = null;
+    if (opts.timeLimit) {
+      timer.hidden = false;
+      const tick = () => {
+        const left = Math.max(0, opts.timeLimit - (Date.now() - t0) / 1000);
+        timer.textContent = `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}`;
+        timer.classList.toggle('low', left < 60);
+        if (left <= 0) timedOut = true;
+      };
+      tick(); iv = setInterval(tick, 500);
     }
+    try {
+      for (let i = 0; i < count; i++) {
+        const r = await ask(`${title} · Q${i + 1}${count < Infinity ? ' of ' + count : ''} · ${right} right so far`, subject, true);
+        done++;
+        if (r.ok) { right++; const c = perCorrect ? perCorrect + comboBonus() : 0; earned += c; S.coins += c; }
+        save(); updateHud();
+        if (r.stopped || timedOut) break;
+      }
+    } finally { if (iv) clearInterval(iv); timer.hidden = true; }
     const pct = done ? Math.round((right / done) * 100) : 0;
-    dialog(title, `Session over: ${right} of ${done} correct (${pct}%). You earned ${earned} coins.${pct < 60 && done >= 3 ? ' Check Stats (I) to see which topics need work.' : ''}`);
+    if (!opts.silent) dialog(title, `Session over: ${right} of ${done} correct (${pct}%). You earned ${earned} coins.${pct < 60 && done >= 3 ? ' Check Stats (I) to see which topics need work.' : ''}`);
+    return { right, done, count, timedOut, secs: Math.round((Date.now() - t0) / 1000) };
+  }
+
+  function quickStudy() {
+    if (busy || !panel.hidden || !qm.hidden) return;
+    busy = true;
+    runSession('Quick study', Infinity, undefined, 5).finally(() => { busy = false; updateHud(); });
+  }
+
+  // Boss battles: each right answer hits the boss, each wrong one costs a heart.
+  async function bossBattle(b) {
+    const beaten = !!S.bosses[b.id];
+    const go = await choose(b.name, beaten ? 'Back for a rematch? This one is for practice: 10 coins per hit.' : `${b.intro} (${b.hp} hits to win, you have 3 hearts. Questions use your chosen subject and topics.)`, ['Fight!', 'Not yet']);
+    if (go !== 0) return;
+    let hp = b.hp, hearts = 3, hits = 0;
+    while (hp > 0 && hearts > 0) {
+      const bar = '■'.repeat(hp) + '□'.repeat(b.hp - hp);
+      const r = await ask(`${b.name} ${bar} · You ${'♥'.repeat(hearts)}${'♡'.repeat(3 - hearts)}`, undefined, true);
+      if (r.ok) { const dmg = S.combo >= 3 ? 2 : 1; hp = Math.max(0, hp - dmg); hits++; b.hitT = performance.now(); if (dmg > 1) toast('Critical hit! (3+ combo)'); }
+      else { hearts--; shake = 0.4; }
+      save(); updateHud();
+      if (r.stopped) { dialog(b.name, 'You retreat to study some more. Come back when you are ready!'); return; }
+    }
+    if (hp <= 0) {
+      if (!beaten) { S.bosses[b.id] = true; coins(b.reward, 'boss defeated'); dialog(b.name, `Defeated! You earned ${b.reward} coins. Check your quests (J) to see what opened up.`); }
+      else { coins(hits * 10, 'rematch won'); dialog(b.name, 'Beaten again. Well studied!'); }
+    } else dialog(b.name, `Out of hearts! ${b.name} wins this round. Review the explanations, then try again.`);
+    save(); checkQuests();
+  }
+
+  // Exam Hall: timed mock exams in the style of the real paper.
+  const GRADES = [[80, 'A'], [70, 'B'], [60, 'C'], [50, 'D'], [40, 'E'], [0, 'U']];
+  const gradeOf = (pct) => GRADES.find((g) => pct >= g[0])[1];
+  const gradeRank = (g) => ({ A: 5, B: 4, C: 3, D: 2, E: 1 }[g] || 0);
+  function bestGradeRank() { return Math.max(0, ...Object.values(S.mocks).map((m) => gradeRank(m.best))); }
+  async function openExamHall() {
+    if (busy && !panel.hidden) return;
+    const s = S.study.subject;
+    const subj = s === 'mix' ? 'all three subjects' : `${Bank.subjects[s].name} Paper ${paperOf(s)}`;
+    const p2 = s !== 'mix' && paperOf(s) === 2;
+    const key = s + '|' + (s === 'mix' ? 'x' : paperOf(s));
+    const best = S.mocks[key] ? `Your best: grade ${S.mocks[key].best} (${S.mocks[key].pct}%).` : 'No mock taken yet for this paper.';
+    const c = await choose('Exam Hall', `Sit a timed mock exam for ${subj}. ${p2 ? '6 structured questions in 45 minutes.' : '15 questions in 20 minutes.'} Grades: A 80%, B 70%, C 60%, D 50%, E 40%. ${best}`, ['Start the mock exam', 'Change subject, paper or topics', 'Not now']);
+    if (c === 1) { openStudy(); return; }
+    if (c !== 0) return;
+    busy = true;
+    try {
+      const n = p2 ? 6 : 15;
+      const r = await runSession('Mock exam', n, undefined, 0, { timeLimit: p2 ? 45 * 60 : 20 * 60, silent: true });
+      const pct = Math.round((r.right / n) * 100), g = gradeOf(pct);
+      const prev = S.mocks[key];
+      if (!prev || pct > prev.pct) S.mocks[key] = { best: g, pct };
+      const reward = r.right * 8 + [0, 10, 25, 50, 80, 120][gradeRank(g)];
+      S.coins += reward; save(); updateHud(); checkQuests();
+      dialog('Mock exam result', `Grade ${g}: ${r.right} of ${n} (${pct}%)${r.done < n ? `, ${n - r.done} unanswered` : ''} in ${Math.floor(r.secs / 60)} min ${r.secs % 60} s. ${!prev || pct > prev.pct ? 'New personal best! ' : ''}You earned ${reward} coins.`);
+    } finally { busy = false; }
+  }
+
+  // Fast travel between places you have unlocked.
+  const PLACES = [
+    { name: 'Home', region: 'town', x: 8, y: 9, dir: 'up' }, { name: 'Farm', region: 'town', x: 8, y: 13, dir: 'down' },
+    { name: 'General Store', region: 'town', x: 19, y: 8, dir: 'up' }, { name: 'Exam Hall', region: 'town', x: 37, y: 8, dir: 'up' },
+    { name: 'Town plaza', region: 'town', x: 22, y: 12, dir: 'down' }, { name: 'Fishing pond', region: 'town', x: 6, y: 21, dir: 'down' },
+    { name: 'Market street', region: 'market', x: 55, y: 10, dir: 'up' }, { name: 'Market plaza (boss)', region: 'market', x: 65, y: 19, dir: 'up' },
+    { name: 'Ledger Hills crossroads', region: 'hills', x: 22, y: 44, dir: 'down' }, { name: 'Golem\'s lair (boss)', region: 'hills', x: 11, y: 50, dir: 'down' },
+    { name: 'Grove path', region: 'grove', x: 65, y: 38, dir: 'down' }, { name: 'Sphinx\'s shrine (boss)', region: 'grove', x: 80, y: 38, dir: 'up' }
+  ];
+  function openTravel() {
+    if (busy || !qm.hidden) return;
+    const html = `<p>Jump straight to any place you have unlocked.</p><div class="grid-list">${PLACES.map((pl, i) => {
+      const open = pl.region === 'town' || S.unlocked[pl.region];
+      return `<button class="item" data-go="${i}" type="button" ${open ? '' : 'disabled'}><span><b>${pl.name}</b><br><small>${REGIONS[pl.region].name}${open ? '' : ' · locked'}</small></span></button>`;
+    }).join('')}</div>`;
+    openPanel('Map · Fast travel', html, 'panel-wide');
+    $$('#panel-body [data-go]').forEach((b) => b.addEventListener('click', () => {
+      const pl = PLACES[Number(b.dataset.go)];
+      P.x = pl.x * 16 + 8; P.y = pl.y * 16 + 12; P.dir = pl.dir; closePanel(); save();
+    }));
+  }
+
+  // Quest journal: finishing quests opens new regions.
+  const QUESTS = [
+    { t: 'Green fingers', d: 'Water 3 crops', need: 3, prog: () => S.cnt.water || 0, reward: 50 },
+    { t: 'Open for business', d: 'Answer 25 questions anywhere', need: 25, prog: () => S.total.c + S.total.w, reward: 100, unlock: 'market' },
+    { t: 'Market day', d: 'Open crates or make sales in the Market Quarter (5 in total)', need: 5, prog: () => (S.cnt.crate || 0) + (S.cnt.stall || 0), reward: 100 },
+    { t: 'The Invisible Hand', d: 'Defeat the boss in the Market plaza', need: 1, prog: () => (S.bosses.hand ? 1 : 0), reward: 150, unlock: 'hills' },
+    { t: 'Moving up', d: 'Upgrade your home to a log cabin', need: 1, prog: () => (S.house >= 1 ? 1 : 0), reward: 80 },
+    { t: 'Strike it rich', d: 'Mine 8 rocks in Ledger Hills', need: 8, prog: () => S.cnt.rock || 0, reward: 120 },
+    { t: 'Exam nerves', d: 'Get grade C or better in a mock exam (Exam Hall)', need: 1, prog: () => (bestGradeRank() >= 3 ? 1 : 0), reward: 150 },
+    { t: 'The Ledger Golem', d: 'Defeat the Golem in the south of Ledger Hills', need: 1, prog: () => (S.bosses.golem ? 1 : 0), reward: 200, unlock: 'grove' },
+    { t: 'Bookworm', d: "Collect 8 lost pages in Poet's Grove", need: 8, prog: () => S.cnt.page || 0, reward: 150 },
+    { t: 'Marathon', d: 'Answer 200 questions in total', need: 200, prog: () => S.total.c + S.total.w, reward: 250 },
+    { t: 'The Sphinx of Syntax', d: 'Defeat the Sphinx at the shrine in the Grove', need: 1, prog: () => (S.bosses.sphinx ? 1 : 0), reward: 300 },
+    { t: 'Top of the class', d: 'Get an A in a mock exam', need: 1, prog: () => (bestGradeRank() >= 5 ? 1 : 0), reward: 400 },
+    { t: 'Collector', d: 'Complete any collection (fish, goods, gems or pages)', need: 1, prog: () => (Object.keys(COLLECTIONS).some((k) => COLLECTIONS[k].items.every((it) => S.col[k] && S.col[k][it])) ? 1 : 0), reward: 300 },
+    { t: 'Master scholar', d: 'Answer 500 questions in total', need: 500, prog: () => S.total.c + S.total.w, reward: 1000, crown: true }
+  ];
+  function checkQuests() {
+    let n = 0;
+    while (S.quest < QUESTS.length) {
+      const q = QUESTS[S.quest];
+      if (Math.min(q.need, q.prog()) < q.need) break;
+      S.coins += q.reward; S.quest++; n++;
+      let msg = `Quest complete: ${q.t}! +${q.reward} coins.`;
+      if (q.unlock) { S.unlocked[q.unlock] = true; spawnNodes(); msg += ` ${REGIONS[q.unlock].name} is now open!`; }
+      if (q.crown) { S.crown = true; msg += ' You earned the Scholar\'s crown!'; }
+      setTimeout(() => banner('Quest complete', msg), 400 + n * 2600);
+    }
+    if (n) { save(); updateHud(); }
+  }
+  function openJournal() {
+    if (!qm.hidden) return;
+    const rows = QUESTS.map((q, i) => {
+      const done = i < S.quest, cur = i === S.quest, v = Math.min(q.need, q.prog());
+      if (!done && !cur) return i === S.quest + 1 ? `<div class="goal quest-locked"><div><b>???</b><small> ${QUESTS.length - S.quest - 1} more quest${QUESTS.length - S.quest - 1 > 1 ? 's' : ''} to discover</small></div></div>` : '';
+      return `<div class="goal ${done ? 'quest-done' : ''}"><div><b>${esc(q.t)}</b>${q.unlock ? ` <span class="chip">opens ${REGIONS[q.unlock].name}</span>` : ''}<br><small>${esc(q.d)}</small>${cur ? `<div class="bar"><span style="width:${(v / q.need) * 100}%"></span></div><small>${v} / ${q.need}</small>` : ''}</div><span class="price">${done ? 'Done' : q.reward + ' c'}</span></div>`;
+    }).join('');
+    const cols = Object.keys(COLLECTIONS).map((k) => { const c = COLLECTIONS[k], have = c.items.filter((it) => S.col[k] && S.col[k][it]); return `<div class="col-row"><b>${c.name}</b> <small>${have.length} / ${c.items.length}</small><div class="col-items">${c.items.map((it) => `<span class="col-item ${S.col[k] && S.col[k][it] ? 'got' : ''}">${S.col[k] && S.col[k][it] ? esc(it) : '?'}</span>`).join('')}</div></div>`; }).join('');
+    openPanel('Quest journal', `${rows}<h3>Collections</h3>${cols}`, 'panel-wide');
   }
 
   const qm = $('#qmodal');
@@ -668,6 +957,20 @@
   const particles = [];
   function burst() { for (let i = 0; i < 14; i++) particles.push({ x: P.x, y: P.y - 10, vx: (Math.random() - 0.5) * 60, vy: -30 - Math.random() * 40, life: 0.9, c: ['#ffd23f', '#ffffff', '#7fdcff'][i % 3] }); }
   function coins(n, why) { S.coins += n; toast(`+${n} coins${why ? ' · ' + why : ''}`); }
+  function bump(k) { S.cnt[k] = (S.cnt[k] || 0) + 1; }
+  // Give a random collectible; rarer items are worth more.
+  function award(colKey, verb) {
+    const items = COLLECTIONS[colKey].items, weights = [30, 25, 20, 13, 8, 4], values = [6, 10, 14, 20, 30, 50];
+    let r = Math.random() * 100, i = 0;
+    while (i < items.length - 1 && (r -= weights[i]) > 0) i++;
+    const col = S.col[colKey] || (S.col[colKey] = {});
+    const first = !col[items[i]];
+    col[items[i]] = (col[items[i]] || 0) + 1;
+    const c = values[i] + comboBonus();
+    S.coins += c;
+    toast(`${verb} ${items[i]}! +${c} coins${first ? ' · new for your collection!' : ''}`);
+    if (first && items.every((it) => col[it])) setTimeout(() => toast(`${COLLECTIONS[colKey].name} collection complete!`), 2700);
+  }
   function comboBonus() { return Math.min(10, Math.max(0, S.combo - 1)); }
 
   async function interact() {
@@ -676,7 +979,7 @@
     if (!t) return;
     busy = true;
     try {
-      if (t.kind === 'door') { if (t.id === 'home') openHome(); else if (t.id === 'shop') openShop(); else await openLibrary(); }
+      if (t.kind === 'door') { if (t.id === 'home') openHome(); else if (t.id === 'shop') openShop(); else await openExamHall(); }
       else if (t.kind === 'board') openBoard();
       else if (t.kind === 'npc') await talkNpc(t.npc);
       else if (t.kind === 'plant') openPlant(t.i);
@@ -688,7 +991,7 @@
       } else if (t.kind === 'water') {
         const r = await ask(`Watering your ${CROPS[S.plot[t.i].crop].name.toLowerCase()}`);
         if (r.ok) {
-          S.plot[t.i].watered = true; ensureDaily(); S.daily.water++;
+          S.plot[t.i].watered = true; ensureDaily(); S.daily.water++; bump('water');
           coins(5 + CANS[S.can].bonus + comboBonus(), S.combo > 1 ? `combo ×${S.combo}` : 'watered');
         } else toast('The soil stayed dry. Try again with a new question.');
         save();
@@ -704,10 +1007,25 @@
         else { S.fruitDay[t.key] = S.day; coins(15, 'oranges'); save(); }
       } else if (t.kind === 'fish') {
         const r = await ask('Fishing');
-        if (r.ok) { const f = FISH[Math.floor(Math.random() * FISH.length)]; const c = f.value + comboBonus(); S.coins += c; S.fish = (S.fish || 0) + 1; toast(`Caught a ${f.name}! +${c} coins`); }
-        else toast('It got away. Cast again!');
+        if (r.ok) { bump('fish'); award('fish', 'Caught'); } else toast('It got away. Cast again!');
         save();
-      } else if (t.kind === 'fountain') toast('Plink. A wish for top marks.');
+      } else if (t.kind === 'node') {
+        const node = S.nodes[t.i], info = NODE_INFO[node.t];
+        const r = await ask(info.verb);
+        if (r.ok) { S.nodes = S.nodes.filter((n) => n !== node); bump(node.t); award({ crate: 'goods', rock: 'gems', page: 'pages' }[node.t], { crate: 'Found', rock: 'Mined', page: 'Found' }[node.t]); }
+        else toast('Not this time. Try again!');
+        save();
+      } else if (t.kind === 'stall') {
+        if (S.stallDay[t.i] === S.day) toast('This stall has sold out today.');
+        else {
+          const r = await ask('Making a sale at the market');
+          if (r.ok) { S.stallDay[t.i] = S.day; bump('stall'); coins(25 + comboBonus(), 'sale made'); } else toast('The customer walked off. Try again!');
+          save();
+        }
+      } else if (t.kind === 'gate') {
+        const q = QUESTS.find((x) => x.unlock === GATES[t.gate].region);
+        toast(q ? `Locked. Complete the quest "${q.t}" to open it (J for quests).` : 'Locked.');
+      } else if (t.kind === 'boss') await bossBattle(t.boss); else if (t.kind === 'fountain') toast('Plink. A wish for top marks.');
       else if (t.kind === 'statue') toast('"The first lesson of economics is scarcity." — plaque by the river');
     } finally { busy = false; updateHud(); }
   }
@@ -738,11 +1056,12 @@
     S.plot.forEach((p) => { if (p.crop && p.watered) { p.stage = Math.min(CROPS[p.crop].days, p.stage + 1); grew++; } p.watered = false; });
     const want = Math.min(8, S.weeds.length + 2 + Math.floor(Math.random() * 3));
     for (let tries = 0; S.weeds.length < want && tries < 200; tries++) {
-      const x = 2 + Math.floor(Math.random() * (MW - 4)), y = 2 + Math.floor(Math.random() * (MH - 4));
+      const x = 2 + Math.floor(Math.random() * 40), y = 2 + Math.floor(Math.random() * 26);
       if (map[y][x] !== 'g' || solid(x, y) || PLOT_POS.some((p) => p.x === x && p.y === y) || S.weeds.some((w) => w.x === x && w.y === y)) continue;
       if (Math.hypot(x * 16 - P.x, y * 16 - P.y) < 40) continue;
       S.weeds.push({ x, y });
     }
+    spawnNodes();
     save();
     closePanel();
     fade(`Day ${S.day}`, grew ? `${grew} crop${grew > 1 ? 's' : ''} grew overnight. Weeds popped up around town.` : 'A new day. Weeds popped up around town.');
@@ -835,14 +1154,6 @@
     $$('#panel-body [data-claim]').forEach((b) => b.addEventListener('click', () => {
       const g = GOALS.find((x) => x.id === b.dataset.claim); S.daily.claimed[g.id] = true; coins(g.reward, 'daily goal'); save(); openBoard();
     }));
-  }
-
-  async function openLibrary() {
-    const s = S.study.subject;
-    const what = s === 'mix' ? 'all three subjects' : `${Bank.subjects[s].name}, Paper ${paperOf(s)}`;
-    const c = await choose('Library', `Study as many questions as you like here. Currently set to ${what}. Each correct answer earns 5 coins plus your combo bonus.`, ['Study 10 questions', 'Study 20 questions', 'Endless (stop any time)', 'Choose subject, paper and topics']);
-    if (c === 3) openStudy();
-    else if (c >= 0) await runSession('Library study session', [10, 20, Infinity][c], undefined, 5);
   }
 
   // Study settings: subject, paper, topics.
@@ -981,17 +1292,19 @@
   function openHelp() {
     openPanel('How to play', `
       <div class="help">
-        <p><b>Move</b> with the arrow keys (or WASD). <b>Interact</b> with Space, Enter or Z. <b>Esc</b> closes windows.</p>
+        <p><b>Move</b> with the arrow keys (or WASD). Hold a direction to speed up, hold <span class="kbd">Shift</span> to sprint, or press <span class="kbd">M</span> to fast travel. <b>Interact</b> with Space, Enter or Z. <b>Esc</b> closes windows.</p>
         <ul>
-          <li><b>Plant</b> seeds in your plots, then <b>water</b> each one by answering a question. Wrong answer? You get the explanation and can try a new question.</li>
-          <li><b>Sleep</b> at home to start the next day. Watered crops grow one stage. Harvest ripe crops for coins.</li>
-          <li><b>Pull weeds</b> (each one is a question) and take <b>daily challenges</b> from the tutors: Prof. Hoot (Economics), Tally (Accounting) and Quill (English).</li>
-          <li><b>Study as much as you want</b>: run 10, 20 or endless question sessions in the <b>Library</b>, practise with any tutor after their daily challenge, or <b>fish</b> in the pond or river (every cast is a question).</li>
-          <li>Spend coins at the <b>General Store</b> on better seeds, a bigger home, more plots, better watering cans and town decor.</li>
-          <li>The <b>Library</b> across the bridge (or key <span class="kbd">T</span>) sets your subject, Paper 1 or 2, and topics. Paper 1 is mostly multiple choice. Paper 2 is structured: calculations, data response and essays you self-mark against a mark scheme.</li>
-          <li>Questions you get wrong come back more often until you get them right.</li>
+          <li><b>Study now</b> (<span class="kbd">Q</span>) starts endless questions from anywhere, using your chosen subject, paper and topics. Stop any time with Esc.</li>
+          <li><b>Farm</b>: plant seeds, water each plot with a question, then sleep at home so watered crops grow. Pull <b>weeds</b> and <b>fish</b> in any water: every one is a question.</li>
+          <li><b>Quests</b> (<span class="kbd">J</span>) unlock new regions: the <b>Market Quarter</b> (stalls and crates), <b>Ledger Hills</b> (rocks to mine) and <b>Poet's Grove</b> (lost pages). Each region has a <b>boss</b>: right answers hit it, wrong answers cost a heart, and a 3+ combo lands critical hits.</li>
+          <li><b>Collections</b>: fish, market goods, gems and pages come in six kinds each, from common to rare.</li>
+          <li>The <b>Exam Hall</b> runs timed <b>mock exams</b> in the style of Paper 1 or Paper 2 and grades you A to U.</li>
+          <li>The tutors (Prof. Hoot, Tally and Quill) give a daily challenge, then practise with you as long as you like.</li>
+          <li>Spend coins at the <b>General Store</b>: bigger home, more plots, better seeds, watering cans and decor.</li>
+          <li><span class="kbd">T</span> picks subject, Paper 1 or 2 and topics. Questions you get wrong come back more often. <span class="kbd">I</span> shows your weakest topics.</li>
+          <li>The town follows your real clock: evenings glow orange and nights bring fireflies and lamplight.</li>
         </ul>
-        <p><b>Shortcuts</b>: <span class="kbd">T</span> study topics · <span class="kbd">I</span> stats · <span class="kbd">N</span> add my own questions · <span class="kbd">H</span> help</p>
+        <p><b>Shortcuts</b>: <span class="kbd">Q</span> study now · <span class="kbd">M</span> map · <span class="kbd">J</span> quests · <span class="kbd">E</span> exam hall · <span class="kbd">T</span> topics · <span class="kbd">I</span> stats · <span class="kbd">N</span> my questions · <span class="kbd">H</span> help</p>
         <p class="muted">Questions are written for the Cambridge International AS Level syllabuses: Economics 9708 (2026–2028), Accounting 9706 (2026–2028) and English Language 9093 (2024–2026). They are original practice questions in the style of the papers, not past-paper copies.</p>
       </div>`, 'panel-wide');
   }
@@ -1005,6 +1318,8 @@
     const lv = level(), cur = 50 * (lv - 1) ** 2, nxt = 50 * lv ** 2;
     $('#h-level').textContent = lv;
     $('#h-xp').style.width = ((S.xp - cur) / (nxt - cur)) * 100 + '%';
+    const q = QUESTS[S.quest];
+    $('#h-quest').textContent = q ? `${q.t}: ${Math.min(q.need, q.prog())}/${q.need}` : 'All quests complete!';
     const s = S.study.subject;
     if (s === 'mix') $('#h-study').textContent = 'All three subjects · mixed';
     else { const n = selectedTopics(s).length; $('#h-study').textContent = `${Bank.subjects[s].name} · Paper ${paperOf(s)} · ${n ? n + ' topic' + (n > 1 ? 's' : '') : 'all topics'}`; }
@@ -1016,6 +1331,13 @@
     t.textContent = msg; t.hidden = false; t.classList.remove('show'); void t.offsetWidth; t.classList.add('show');
     clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 2600);
   }
+  let bannerTimer = null;
+  function banner(title, text) {
+    const b = $('#banner');
+    $('#banner-t').textContent = title; $('#banner-s').textContent = text;
+    b.hidden = false; b.classList.remove('show'); void b.offsetWidth; b.classList.add('show');
+    clearTimeout(bannerTimer); bannerTimer = setTimeout(() => { b.hidden = true; }, 3200);
+  }
   function fade(title, text) {
     const f = $('#fade');
     $('#fade-t').textContent = title; $('#fade-s').textContent = text;
@@ -1025,35 +1347,166 @@
 
   // ------------------------------------------------------------------ render
   const hintEl = $('#hint');
-  function render(t) {
-    const camX = Math.round(clamp(P.x - (VW * TILE) / 2, 0, MW * TILE - VW * TILE));
-    const camY = Math.round(clamp(P.y - 8 - (VH * TILE) / 2, 0, MH * TILE - VH * TILE));
+  const COARSE = window.matchMedia && matchMedia('(pointer: coarse)').matches;
+  // ---- sprites for the outer regions
+  function drawGate(sx, sy, vertical) {
+    // one gate covers a 2x2 block; drawn from its top-left tile
+    R('#8e8a86', sx - 2, sy - 6, 6, 38); R('#b9b4ae', sx - 2, sy - 6, 6, 2); R('#8e8a86', sx + 28, sy - 6, 6, 38); R('#b9b4ae', sx + 28, sy - 6, 6, 2);
+    R('#7a4a26', sx + 4, sy + 4, 24, 22); for (let i = 0; i < 6; i++) R('#5d371b', sx + 4 + i * 4, sy + 4, 1, 22);
+    R('#5d371b', sx + 4, sy + 8, 24, 2); R('#5d371b', sx + 4, sy + 20, 24, 2);
+    R('#e8b33a', sx + 13, sy + 12, 6, 6); R('#b8860b', sx + 14, sy + 9, 4, 4); R('#e8b33a', sx + 15, sy + 10, 2, 2); R('#2b2233', sx + 15, sy + 14, 2, 2);
+  }
+  function drawStall(i, sx, sy, t) {
+    const col = STALL_COLS[i % STALL_COLS.length], sold = S.stallDay[i] === S.day;
+    R('rgba(0,0,0,0.18)', sx + 1, sy + 29, 30, 3);
+    R('#8b5a2b', sx + 2, sy + 8, 2, 22); R('#8b5a2b', sx + 28, sy + 8, 2, 22);
+    R('#a86f3a', sx + 1, sy + 20, 30, 9); R('#8b5a2b', sx + 1, sy + 20, 30, 2);
+    for (let k = 0; k < 4; k++) R(k % 2 ? '#fff4e0' : col, sx + k * 8, sy, 8, 9);
+    for (let k = 0; k < 4; k++) R(k % 2 ? '#fff4e0' : col, sx + k * 8 + 2, sy + 9, 4, 2);
+    if (!sold) { const goods = ['#e0412f', '#f2a23a', '#6cbf4a', '#b58cff', '#f3c83a']; for (let k = 0; k < 5; k++) R(goods[(k + i) % 5], sx + 4 + k * 5, sy + 17, 4, 3); }
+    else { R('#fff4e0', sx + 8, sy + 14, 16, 5); R('#c2413a', sx + 10, sy + 16, 12, 1); }
+  }
+  function drawNode(n, sx, sy, t) {
+    if (n.t === 'crate') {
+      R('rgba(0,0,0,0.2)', sx + 2, sy + 13, 13, 3);
+      R('#a86f3a', sx + 2, sy + 3, 12, 11); R('#8b5a2b', sx + 2, sy + 3, 12, 1); R('#8b5a2b', sx + 2, sy + 8, 12, 1); R('#8b5a2b', sx + 2, sy + 13, 12, 1);
+      R('#6b4220', sx + 2, sy + 3, 1, 11); R('#6b4220', sx + 13, sy + 3, 1, 11); R('#e8b33a', sx + 7, sy + 5, 2, 2);
+    } else if (n.t === 'rock') {
+      const gem = ['#e8364f', '#4fb0e8', '#9b59b6', '#2ecc71'][(n.x + n.y) % 4];
+      R('rgba(0,0,0,0.2)', sx + 1, sy + 12, 14, 4);
+      R('#6f6b67', sx + 1, sy + 5, 14, 9); R('#8e8a86', sx + 2, sy + 3, 11, 8); R('#b1ada8', sx + 4, sy + 4, 4, 2);
+      R(gem, sx + 9, sy + 7, 2, 2); R(gem, sx + 4, sy + 9, 2, 1);
+      if (((t / 250) | 0) % 6 === (n.x % 6)) R('#ffffff', sx + 10, sy + 7, 1, 1);
+    } else {
+      const bob = Math.round(Math.sin(t / 400 + n.x) * 1.5);
+      R('rgba(255,240,160,0.25)', sx + 1, sy + 1 + bob, 14, 12);
+      R('#fdf3d6', sx + 3, sy + 3 + bob, 10, 9); R('#e3cf9f', sx + 12, sy + 3 + bob, 1, 9);
+      for (let i = 0; i < 3; i++) R('#9a8fb0', sx + 5, sy + 5 + i * 2 + bob, 6, 1);
+      R('rgba(0,0,0,0.15)', sx + 4, sy + 14, 8, 2);
+    }
+  }
+  function drawBoss(b, sx, sy, t) {
+    // 32x32 sprite anchored on its 2x2 block; shakes briefly when hit
+    const hit = b.hitT && t - b.hitT < 300;
+    const jx = hit ? ((t / 30) | 0) % 2 * 2 - 1 : 0;
+    const bob = Math.round(Math.sin(t / 500) * 2), x = sx + jx, done = S.bosses[b.id];
+    R('rgba(0,0,0,0.22)', sx + 3, sy + 28, 26, 4);
+    if (b.id === 'hand') {
+      R('#e6e2dc', x + 9, sy + 6 + bob, 14, 16); R('#ffffff', x + 10, sy + 7 + bob, 12, 14);
+      for (let i = 0; i < 4; i++) { R('#ffffff', x + 9 + i * 4, sy + bob, 3, 8); R('#e6e2dc', x + 11 + i * 4, sy + bob, 1, 8); }
+      R('#ffffff', x + 4, sy + 10 + bob, 6, 4); R('#e8b33a', x + 9, sy + 21 + bob, 14, 3);
+      for (let i = 0; i < 3; i++) { const a = t / 600 + i * 2.1; R('#e8b33a', x + 15 + Math.round(Math.cos(a) * 14), sy + 14 + Math.round(Math.sin(a) * 8), 3, 3); }
+    } else if (b.id === 'golem') {
+      R('#6f6b67', x + 5, sy + 8 + bob, 22, 20); R('#8e8a86', x + 7, sy + 6 + bob, 18, 8);
+      R('#6f6b67', x + 1, sy + 12 + bob, 5, 12); R('#6f6b67', x + 26, sy + 12 + bob, 5, 12);
+      R('#2e8b57', x + 10, sy + 15 + bob, 12, 9); R('#fffaf0', x + 11, sy + 16 + bob, 10, 7);
+      for (let i = 0; i < 3; i++) R('#2e8b57', x + 12, sy + 17 + i * 2 + bob, 8, 1);
+      R(done ? '#8e8a86' : '#ffdf5a', x + 10, sy + 9 + bob, 3, 2); R(done ? '#8e8a86' : '#ffdf5a', x + 19, sy + 9 + bob, 3, 2);
+    } else {
+      R('#9e9a94', sx + 2, sy + 24, 28, 6); R('#c4c0bb', sx + 2, sy + 24, 28, 1);
+      R('#d9a441', x + 6, sy + 14 + bob, 22, 10); R('#c48f2f', x + 6, sy + 22 + bob, 22, 2);
+      R('#e8b33a', x + 4, sy + 3 + bob, 10, 13);
+      for (let i = 0; i < 4; i++) R(i % 2 ? '#6c4f9e' : '#e8b33a', x + 2, sy + 4 + i * 3 + bob, 2, 3);
+      for (let i = 0; i < 4; i++) R(i % 2 ? '#6c4f9e' : '#e8b33a', x + 14, sy + 4 + i * 3 + bob, 2, 3);
+      R('#6c4f9e', x + 4, sy + 2 + bob, 10, 2); R('#2b2233', x + 6, sy + 7 + bob, 2, 2); R('#2b2233', x + 10, sy + 7 + bob, 2, 2);
+      R('#d9a441', x + 26, sy + 15 + bob, 3, 2);
+    }
+    if (done) { R('#3f8f4a', sx + 12, sy - 8, 8, 6); R('#ffffff', sx + 14, sy - 6, 4, 2); }
+  }
+  function drawCrown(sx, sy) { R('#e8b33a', sx + 4, sy - 3, 8, 3); R('#e8b33a', sx + 4, sy - 5, 2, 2); R('#e8b33a', sx + 7, sy - 6, 2, 3); R('#e8b33a', sx + 10, sy - 5, 2, 2); R('#e0412f', sx + 7, sy - 2, 2, 1); }
+
+  // ---- atmosphere: time of day follows the real clock
+  function daylight() {
+    const h = new Date().getHours() + new Date().getMinutes() / 60;
+    if (h >= 7 && h < 17) return null;
+    if (h >= 5 && h < 7) return { col: 'rgba(255,170,150,', a: 0.12, night: false };
+    if (h >= 17 && h < 19) return { col: 'rgba(255,140,60,', a: 0.16, night: false };
+    return { col: 'rgba(24,28,78,', a: 0.38, night: true };
+  }
+  const ambient = [];
+  function updateAmbient(dt, camX, camY, night) {
+    const reg = regionAt(Math.floor(P.x / 16), Math.floor(P.y / 16));
+    const want = night ? 14 : reg === 'grove' ? 10 : 5;
+    while (ambient.length < want) {
+      const kind = night ? 'firefly' : reg === 'grove' || Math.random() < 0.5 ? 'butterfly' : 'leaf';
+      ambient.push({ kind, x: camX + Math.random() * VW * 16, y: camY + Math.random() * VH * 16, ph: Math.random() * 6, life: 6 + Math.random() * 8, c: ['#ffd23f', '#ff7aa2', '#7fdcff', '#ffffff'][(Math.random() * 4) | 0] });
+    }
+    for (let i = ambient.length - 1; i >= 0; i--) {
+      const a = ambient[i]; a.life -= dt; a.ph += dt;
+      if (a.kind === 'leaf') { a.x += 10 * dt + Math.sin(a.ph * 2) * 8 * dt; a.y += 14 * dt; }
+      else { a.x += Math.cos(a.ph * 1.3) * 14 * dt; a.y += Math.sin(a.ph * 1.7) * 10 * dt; }
+      if (a.life <= 0 || a.x < camX - 20 || a.x > camX + VW * 16 + 20 || a.y < camY - 20 || a.y > camY + VH * 16 + 20) ambient.splice(i, 1);
+    }
+  }
+  let shake = 0, lastRegion = null;
+
+  function render(t, dt) {
+    let camX = Math.round(clamp(P.x - (VW * TILE) / 2, 0, MW * TILE - VW * TILE));
+    let camY = Math.round(clamp(P.y - 8 - (VH * TILE) / 2, 0, MH * TILE - VH * TILE));
+    if (shake > 0) { camX += Math.round((Math.random() - 0.5) * 4); camY += Math.round((Math.random() - 0.5) * 4); }
     const tx0 = Math.floor(camX / 16), ty0 = Math.floor(camY / 16);
+    const inView = (x, y, m = 3) => x >= tx0 - m && x <= tx0 + VW + m && y >= ty0 - m && y <= ty0 + VH + m;
     for (let ty = ty0; ty <= ty0 + VH; ty++) for (let tx = tx0; tx <= tx0 + VW; tx++) {
-      if (tx >= MW || ty >= MH) continue;
+      if (tx < 0 || ty < 0 || tx >= MW || ty >= MH) continue;
       drawGround(tx, ty, tx * 16 - camX, ty * 16 - camY, t);
     }
     // ground-level objects
     PLOT_POS.forEach((p, i) => drawPlot(i, p.x * 16 - camX, p.y * 16 - camY, t));
     S.weeds.forEach((w) => drawWeed(w.x * 16 - camX, w.y * 16 - camY));
+    for (const d of dust) R('rgba(230,210,170,' + (d.life * 2).toFixed(2) + ')', d.x - camX, d.y - camY, 2, 2);
     // y-sorted objects
     const list = [];
-    for (let ty = Math.max(0, ty0 - 1); ty <= Math.min(MH - 1, ty0 + VH + 1); ty++) for (let tx = Math.max(0, tx0 - 1); tx <= Math.min(MW - 1, tx0 + VW + 1); tx++) {
-      if (map[ty][tx] === 't') list.push({ y: ty * 16 + 15, d: () => drawTree(tx * 16 - camX, ty * 16 - camY, false) });
+    for (let ty = Math.max(0, ty0 - 1); ty <= Math.min(MH - 1, ty0 + VH + 2); ty++) for (let tx = Math.max(0, tx0 - 1); tx <= Math.min(MW - 1, tx0 + VW + 1); tx++) {
+      if (map[ty][tx] === 't') list.push({ y: ty * 16 + 15, d: () => drawTree(tx * 16 - camX, ty * 16 - camY, false, tx, ty, t) });
     }
     for (const k in DECOR) if (S.decor[k]) {
       if (k === 'fountain') { const [x, y] = DECOR[k].tiles[0]; list.push({ y: y * 16 + 30, d: () => drawFountain(x * 16 - camX, y * 16 - camY, t) }); continue; }
-      for (const [x, y] of DECOR[k].tiles) list.push({ y: y * 16 + 14, d: () => (k === 'orchard' ? drawTree(x * 16 - camX, y * 16 - camY, S.fruitDay[`${x},${y}`] !== S.day) : drawDecor(k, x * 16 - camX, y * 16 - camY, t)) });
+      for (const [x, y] of DECOR[k].tiles) list.push({ y: y * 16 + 14, d: () => (k === 'orchard' ? drawTree(x * 16 - camX, y * 16 - camY, S.fruitDay[`${x},${y}`] !== S.day, x, y, t) : drawDecor(k, x * 16 - camX, y * 16 - camY, t)) });
     }
     const B = BUILDINGS;
     list.push({ y: (B.home.y + B.home.h) * 16, d: () => drawHouse(S.house, B.home.x * 16 - camX, B.home.y * 16 - camY) });
     list.push({ y: (B.shop.y + B.shop.h) * 16, d: () => drawShop(B.shop.x * 16 - camX, B.shop.y * 16 - camY) });
     list.push({ y: (B.library.y + B.library.h) * 16, d: () => drawLibrary(B.library.x * 16 - camX, B.library.y * 16 - camY) });
     list.push({ y: BOARD[1] * 16 + 15, d: () => drawBoard(BOARD[0] * 16 - camX, BOARD[1] * 16 - camY) });
+    for (const k in GATES) {
+      const g = GATES[k]; if (S.unlocked[g.region]) continue;
+      const [gx, gy] = g.tiles[0]; if (!inView(gx, gy)) continue;
+      list.push({ y: (gy + 2) * 16, d: () => drawGate(gx * 16 - camX, gy * 16 - camY) });
+    }
+    STALLS.forEach(([x, y], i) => { if (inView(x, y)) list.push({ y: (y + 2) * 16, d: () => drawStall(i, x * 16 - camX, y * 16 - camY, t) }); });
+    for (const b of BOSSES) if (inView(b.x, b.y)) list.push({ y: (b.y + 1) * 16, d: () => drawBoss(b, (b.x - 1) * 16 - camX, (b.y - 1) * 16 - camY, t) });
+    for (const n of S.nodes) if (inView(n.x, n.y)) list.push({ y: n.y * 16 + 14, d: () => drawNode(n, n.x * 16 - camX, n.y * 16 - camY, t) });
     for (const n of NPCS) list.push({ y: n.y, d: () => n.draw(Math.round(n.x - 8 - camX), Math.round(n.y - 15 - camY), t) });
     const frame = P.moving ? Math.floor(P.anim * 7) % 2 : 0;
-    list.push({ y: P.y + 0.5, d: () => drawPerson(Math.round(P.x - 8 - camX), Math.round(P.y - 15 - camY), P.dir, frame, PLAYER_PAL) });
+    list.push({ y: P.y + 0.5, d: () => { const px2 = Math.round(P.x - 8 - camX), py2 = Math.round(P.y - 15 - camY); drawPerson(px2, py2, P.dir, frame, PLAYER_PAL); if (S.crown) drawCrown(px2, py2); } });
     list.sort((a, b) => a.y - b.y).forEach((o) => o.d());
+    // ambient life and light
+    const light = daylight();
+    updateAmbient(dt || 0, camX, camY, light && light.night);
+    for (const a of ambient) {
+      const ax = Math.round(a.x - camX), ay = Math.round(a.y - camY);
+      if (a.kind === 'firefly') { if (Math.sin(a.ph * 3) > -0.2) { R('rgba(255,240,140,0.35)', ax - 1, ay - 1, 4, 4); R('#fff6a8', ax, ay, 2, 2); } }
+      else if (a.kind === 'butterfly') { const f = Math.sin(a.ph * 14) > 0; R(a.c, ax - (f ? 2 : 1), ay, f ? 2 : 1, 2); R(a.c, ax + 1, ay, f ? 2 : 1, 2); R('#2b2233', ax, ay, 1, 2); }
+      else R('#6ab447', ax, ay, 2, 1);
+    }
+    // drifting cloud shadows
+    ctx.fillStyle = 'rgba(20,30,40,0.07)';
+    for (let i = 0; i < 3; i++) {
+      const cx = ((t / 90 + i * 330) % (MW * 16 + 400)) - 200 - camX, cy = ((i * 397) % (MH * 16)) - camY;
+      ctx.beginPath(); ctx.ellipse(cx, cy, 70, 30, 0, 0, Math.PI * 2); ctx.ellipse(cx + 50, cy + 12, 50, 24, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    if (light) {
+      ctx.fillStyle = light.col + light.a + ')'; ctx.fillRect(0, 0, buf.width, buf.height);
+      if (light.night) {
+        ctx.globalCompositeOperation = 'lighter';
+        const glow = (x, y, r2, a) => { const g = ctx.createRadialGradient(x, y, 0, x, y, r2); g.addColorStop(0, `rgba(255,210,120,${a})`); g.addColorStop(1, 'rgba(255,210,120,0)'); ctx.fillStyle = g; ctx.fillRect(x - r2, y - r2, r2 * 2, r2 * 2); };
+        glow(P.x - camX, P.y - 8 - camY, 40, 0.22);
+        if (S.decor.lamps) for (const [x, y] of DECOR.lamps.tiles) glow(x * 16 + 8 - camX, y * 16 - 2 - camY, 36, 0.3);
+        for (const k in B) glow((B[k].door[0]) * 16 + 8 - camX, B[k].door[1] * 16 - camY, 30, 0.25);
+        STALLS.forEach(([x, y]) => glow(x * 16 + 16 - camX, y * 16 + 12 - camY, 26, 0.18));
+        ctx.globalCompositeOperation = 'source-over';
+      }
+    }
     // interaction marker
     const tg = !busy && panel.hidden && qm.hidden ? target() : null;
     if (tg) {
@@ -1063,7 +1516,6 @@
         const mx = Math.round(tg.npc.x - camX), my = Math.round(tg.npc.y - 22 - camY);
         R('#2b2233', mx - 3, my - 5 + bob, 7, 7); R('#ffd23f', mx - 2, my - 4 + bob, 5, 5); R('#2b2233', mx, my - 3 + bob, 1, 2); R('#2b2233', mx, my + bob, 1, 1);
       } else {
-        // corner brackets around the tile in front of the player
         const x0 = f.tx * 16 - camX - bob, y0 = f.ty * 16 - camY - bob, s2 = 16 + bob * 2, c = '#ffd23f';
         for (const [cx, cy, dx, dy] of [[x0, y0, 1, 1], [x0 + s2 - 1, y0, -1, 1], [x0, y0 + s2 - 1, 1, -1], [x0 + s2 - 1, y0 + s2 - 1, -1, -1]]) {
           R(c, Math.min(cx, cx + dx * 3), cy, 4, 1); R(c, cx, Math.min(cy, cy + dy * 3), 1, 4);
@@ -1072,8 +1524,11 @@
     }
     for (const p of particles) R(p.c, p.x - camX, p.y - camY, 2, 2);
     vctx.drawImage(buf, 0, 0, view.width, view.height);
-    const hint = tg ? `Space: ${tg.label}` : 'Arrow keys to move · Space to interact · T to choose topics';
+    const hint = tg ? `${COARSE ? 'A' : 'Space'}: ${tg.label}` : COARSE ? 'Use the pad to move · A to interact' : 'Arrows move (hold to speed up, Shift to sprint) · Space interact · Q study now · M map';
     if (hintEl && hintEl.textContent !== hint) hintEl.textContent = hint;
+    // region banner when crossing into a new area
+    const reg = regionAt(Math.floor(P.x / 16), Math.floor(P.y / 16));
+    if (reg !== lastRegion) { if (lastRegion) banner(REGIONS[reg].name, REGIONS[reg].sub); lastRegion = reg; }
   }
 
   // ------------------------------------------------------------------ keyboard
@@ -1091,14 +1546,20 @@
     if (!panel.hidden) { if (e.key === 'Escape') { e.preventDefault(); closePanel(); } return; }
     const tag = (document.activeElement && document.activeElement.tagName) || '';
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (e.key === 'Shift') { shiftDown = true; return; }
     const d = KEYMAP[e.key];
     if (d) { e.preventDefault(); keys.delete(d); keys.add(d); return; }
     if (e.key === ' ' || e.key === 'Enter' || e.key === 'z' || e.key === 'Z') { e.preventDefault(); interact(); return; }
     const k = e.key.toLowerCase();
-    if (k === 't') openStudy(); else if (k === 'i') openStats(); else if (k === 'n') openEditor(); else if (k === 'h' || k === '?') openHelp();
+    if (k === 'q') quickStudy(); else if (k === 'm') openTravel(); else if (k === 'j') openJournal(); else if (k === 'e') openExamHall();
+    else if (k === 't') openStudy(); else if (k === 'i') openStats(); else if (k === 'n') openEditor(); else if (k === 'h' || k === '?') openHelp();
   });
-  window.addEventListener('keyup', (e) => { const d = KEYMAP[e.key]; if (d) keys.delete(d); });
-  window.addEventListener('blur', () => keys.clear());
+  window.addEventListener('keyup', (e) => { if (e.key === 'Shift') shiftDown = false; const d = KEYMAP[e.key]; if (d) keys.delete(d); });
+  window.addEventListener('blur', () => { keys.clear(); shiftDown = false; });
+  // Save immediately when the tab is hidden or closed, so no progress is lost.
+  const saveNow = () => { S.player = { x: P.x, y: P.y, dir: P.dir }; save(); };
+  window.addEventListener('pagehide', saveNow);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) saveNow(); });
 
   // on-screen pad for touch screens
   $$('[data-pad]').forEach((b) => {
@@ -1112,6 +1573,10 @@
   $('#b-stats').addEventListener('click', openStats);
   $('#b-edit').addEventListener('click', () => openEditor());
   $('#b-help').addEventListener('click', openHelp);
+  $('#b-quick').addEventListener('click', () => quickStudy());
+  $('#b-map').addEventListener('click', () => openTravel());
+  $('#b-quests').addEventListener('click', () => openJournal());
+  $('#h-quest').addEventListener('click', () => openJournal());
 
   // ------------------------------------------------------------------ loop
   let last = performance.now(), saveClock = 0;
@@ -1122,12 +1587,25 @@
     for (let i = particles.length - 1; i >= 0; i--) { const p = particles[i]; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 120 * dt; p.life -= dt; if (p.life <= 0) particles.splice(i, 1); }
     saveClock += dt;
     if (saveClock > 3) { saveClock = 0; S.player = { x: P.x, y: P.y, dir: P.dir }; save(); }
-    render(now);
+    for (let i = dust.length - 1; i >= 0; i--) { dust[i].life -= dt; if (dust[i].life <= 0) dust.splice(i, 1); }
+    if (shake > 0) shake -= dt;
+    render(now, dt);
     requestAnimationFrame(loop);
   }
 
+  // When hosted as a website, install an offline cache and ask the browser to keep saved progress.
+  function setupOffline() {
+    try {
+      if (!/^https?:$/.test(location.protocol) || /claude\.ai|claudeusercontent/.test(location.hostname)) return;
+      if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js', { scope: './' }).catch(() => {});
+      if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+    } catch (e) { /* not available here */ }
+  }
+
   function start() {
-    fit(); updateHud();
+    setupOffline();
+    if (!S.nodes.length && Object.keys(S.unlocked).length) spawnNodes();
+    fit(); updateHud(); checkQuests();
     if (!S.seenHelp) { S.seenHelp = true; save(); openHelp(); }
     requestAnimationFrame(loop);
   }

@@ -1,0 +1,15 @@
+{
+  "name": "Study Town",
+  "short_name": "Study Town",
+  "description": "A cosy town-building revision game for Cambridge AS Economics, Accounting and English Language.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#cfe9e4",
+  "theme_color": "#2b2233",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

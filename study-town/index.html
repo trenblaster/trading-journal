@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Study Town</title>
+<meta name="theme-color" content="#2b2233">
+<meta name="description" content="A cosy town-building revision game for Cambridge AS Economics, Accounting and English Language.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@500;700&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap">
@@ -51,6 +57,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .study-chip.chip-econ { background: var(--econ); } .study-chip.chip-acc { background: var(--acc); } .study-chip.chip-eng { background: var(--eng); }
 .study-chip.chip-mix { background: linear-gradient(90deg, var(--econ), var(--acc), var(--eng)); }
 .hbtn { border: 2px solid var(--ink); background: var(--paper); border-radius: 6px; padding: 3px 9px; cursor: pointer; font-weight: 700; box-shadow: 2px 2px 0 var(--ink); }
+.hbtn-go { background: var(--gold); }
 .hbtn:hover { background: #fff; transform: translate(-1px, -1px); box-shadow: 3px 3px 0 var(--ink); }
 .hbtn:active { transform: translate(1px, 1px); box-shadow: 1px 1px 0 var(--ink); }
 .hbtn kbd, .kbd { font: 700 11px/1 var(--f-display); border: 1.5px solid var(--ink); border-radius: 3px; padding: 1px 4px; background: var(--paper-2); margin-left: 4px; }
@@ -159,7 +166,12 @@ textarea { resize: vertical; }
 .chip-soft { background: var(--paper); }
 .q-graph { display: flex; justify-content: center; }
 .econ-graph { width: 100%; max-width: 420px; height: auto; border: 2px solid var(--ink); border-radius: 6px; font-family: var(--f-body); }
-.q-stem { font-size: 17px; line-height: 1.55; }
+.q-stem { font-size: 17px; line-height: 1.55; overflow-x: auto; }
+.qt { border-collapse: collapse; margin: 8px 0; font-size: 15px; font-variant-numeric: tabular-nums; }
+.qt th, .qt td { border: 1.5px solid var(--ink); padding: 3px 10px; text-align: right; }
+.qt th:first-child, .qt td:first-child { text-align: left; }
+.qt th { background: var(--paper-2); }
+.marks { font-weight: 700; color: var(--ink-soft); white-space: nowrap; }
 .q-body { display: flex; flex-direction: column; gap: 8px; }
 .opt { display: flex; gap: 10px; align-items: flex-start; text-align: left; border: 2px solid var(--ink); background: #fff; border-radius: 6px; padding: 9px 12px; cursor: pointer; font-size: 16px; }
 .opt.focus { background: #fff6d6; box-shadow: 3px 3px 0 var(--ink); }
@@ -186,6 +198,22 @@ textarea { resize: vertical; }
 .extract .small { font-size: 12.5px; color: var(--ink-soft); }
 .model p { margin-top: 6px !important; }
 
+/* Quests, collections, timer, banner */
+.quest-pill { cursor: pointer; font-weight: 700; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: #fff4d6; }
+.quest-done { opacity: 0.6; }
+.quest-locked { opacity: 0.45; }
+.col-row { display: flex; flex-direction: column; gap: 4px; }
+.col-items { display: flex; flex-wrap: wrap; gap: 4px; }
+.col-item { border: 1.5px dashed var(--ink-soft); border-radius: 4px; padding: 1px 6px; font-size: 13px; color: var(--ink-soft); }
+.col-item.got { border-style: solid; border-color: var(--ink); background: #fff4d6; color: var(--ink); font-weight: 700; }
+.q-timer { font: 700 15px var(--f-display); background: var(--ink); color: var(--paper); border-radius: 4px; padding: 2px 8px; font-variant-numeric: tabular-nums; }
+.q-timer.low { background: var(--no); }
+#banner { position: absolute; top: 18%; left: 50%; transform: translateX(-50%); z-index: 8; text-align: center; background: rgba(43, 34, 51, 0.88); color: var(--paper); padding: 12px 26px; border-radius: 8px; border: 3px solid var(--gold); pointer-events: none; max-width: calc(100% - 32px); }
+#banner-t { font: 700 26px var(--f-display); }
+#banner-s { font-size: 15px; }
+#banner.show { animation: banner 3.2s ease forwards; }
+@keyframes banner { 0% { opacity: 0; transform: translate(-50%, -10px); } 12%, 80% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; } }
+
 /* Toast and day fade */
 #toast { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--paper); padding: 8px 14px; border-radius: 6px; font: 500 15px var(--f-display); z-index: 20; box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.25); max-width: calc(100% - 32px); text-align: center; }
 #toast.show { animation: pop 0.25s ease-out; }
@@ -197,8 +225,12 @@ textarea { resize: vertical; }
 @media (prefers-reduced-motion: reduce) { #fade.go, #toast.show, .shake { animation: none; } }
 
 @media (max-width: 640px) {
-  #app { padding: 8px 16px; }
-  .brand { font-size: 18px; }
+  #app { padding: 8px 16px; gap: 6px; }
+  .brand { display: none; }
+  .hud, .hud-left, .hud-right { gap: 5px; }
+  .pill, .hbtn, .study-chip { font-size: 13px; padding: 2px 7px; box-shadow: 1px 1px 0 var(--ink); }
+  .quest-pill { max-width: 170px; }
+  #hint { font-size: 12px; }
   .hbtn kbd { display: none; }
   .stat-row { grid-template-columns: repeat(2, 1fr); }
   .ts { grid-template-columns: 1fr 70px auto; }
@@ -213,10 +245,14 @@ textarea { resize: vertical; }
       <span class="pill" title="Coins"><span class="coin" aria-hidden="true"></span><span id="h-coins">0</span></span>
       <span class="pill" title="In-game day"><small>Day</small><span id="h-day">1</span></span>
       <span class="pill" title="Real-life study streak"><small>Streak</small><span id="h-streak">0</span></span>
+      <button class="pill quest-pill" id="h-quest" type="button" title="Current quest (J)">Quest</button>
       <span class="pill" title="Scholar level"><small>Lv</small><span id="h-level">1</span><span class="xpbar" aria-hidden="true"><span id="h-xp"></span></span></span>
     </div>
     <div class="hud-right">
       <button class="study-chip" id="h-study" type="button" title="Change subject, paper and topics">Economics · Paper 1</button>
+      <button class="hbtn hbtn-go" id="b-quick" type="button">Study now<kbd>Q</kbd></button>
+      <button class="hbtn" id="b-map" type="button">Map<kbd>M</kbd></button>
+      <button class="hbtn" id="b-quests" type="button">Quests<kbd>J</kbd></button>
       <button class="hbtn" id="b-study" type="button">Topics<kbd>T</kbd></button>
       <button class="hbtn" id="b-stats" type="button">Stats<kbd>I</kbd></button>
       <button class="hbtn" id="b-edit" type="button">My Qs<kbd>N</kbd></button>
@@ -246,7 +282,7 @@ textarea { resize: vertical; }
 
   <div class="overlay-wrap" id="qmodal" hidden>
     <section class="qcard" role="dialog" aria-modal="true" aria-labelledby="q-stem">
-      <div class="q-top"><div class="q-meta" id="q-meta"></div><span class="q-reason" id="q-reason"></span></div>
+      <div class="q-top"><div class="q-meta" id="q-meta"></div><span class="q-reason" id="q-reason"></span><span class="q-timer" id="q-timer" hidden>0:00</span></div>
       <div class="q-scroll">
         <div class="q-graph" id="q-graph" hidden></div>
         <div class="q-stem" id="q-stem"></div>
@@ -258,13 +294,20 @@ textarea { resize: vertical; }
   </div>
 
   <div id="toast" role="status" hidden></div>
+  <div id="banner" hidden><div id="banner-t"></div><div id="banner-s"></div></div>
   <div id="fade" hidden><div id="fade-t">Day 2</div><div id="fade-s"></div></div>
 </div>
 
 <script src="js/bank-core.js"></script>
 <script src="js/bank-econ.js"></script>
+<script src="js/bank-econ-2.js"></script>
+<script src="js/bank-econ-3.js"></script>
+<script src="js/bank-econ-p2.js"></script>
 <script src="js/bank-acc.js"></script>
+<script src="js/bank-acc-2.js"></script>
+<script src="js/bank-acc-p2.js"></script>
 <script src="js/bank-eng.js"></script>
+<script src="js/bank-eng-2.js"></script>
 <script src="js/graphs.js"></script>
 <script src="js/game.js"></script>
 </body>

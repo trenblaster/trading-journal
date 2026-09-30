@@ -306,6 +306,36 @@
     'Drag the window in the strip under the chart to look back through yesterday and the overnight session.'
   ];
 
+  // Tips for what's being traded (by instrument class), shown before the bell.
+  const MARKET_TIPS = {
+    index: [
+      'ES and NQ often run the stops just past the overnight high or low early on, then turn. Wait for the reclaim.',
+      'The opening range (first 15 minutes) and the initial balance (first hour) are the levels index traders lean on all day.',
+      'NQ moves about 1.2 times as much as ES on a normal day, and more when tech leads.',
+      'On a balance day the edges of yesterday\'s value area hold. On a trend day price rides VWAP and never looks back.'
+    ],
+    energy: [
+      'Crude opens at 9:00 and settles at 14:30. Volume dries up after the settlement.',
+      'The EIA inventory report (Wednesdays, 10:30) can move crude 1% in a minute, and the first spike often reverses.',
+      'Crude breaks its levels more often than the indexes, and its breakouts run further. Give stops room.'
+    ],
+    metal: [
+      'Gold opens at 8:20. Hot inflation or jobs data lifts rates, and that usually sinks gold.',
+      'Gold tends to turn right at its levels, to the tick, and respects the $10 and $50 round numbers.'
+    ],
+    small: [
+      'Runners: the premarket high and VWAP decide the day. A break of the premarket high on volume is the classic long.',
+      'LULD halts pause a stock for 5 minutes when it moves 10% (20% under $3) inside 5 minutes. Limit orders wait for the reopen.',
+      'Failed breakouts on small caps are violent: if the new high doesn\'t hold, the trapped longs unwind it fast.',
+      'Once a stock is down 10% on the day, the short sale restriction (SSR) kicks in: a new short can\'t hit the bid, so short with a limit above it.'
+    ],
+    large: [
+      'Large caps follow the market: when ES rolls over, most of them roll with it.',
+      'VWAP pullbacks in a trending large cap are the bread-and-butter trade.'
+    ]
+  };
+  MARKET_TIPS.etf = MARKET_TIPS.large;
+
   const HOTKEYS = [
     ['B', 'Buy market (ticket size)'], ['S', 'Sell / short market'],
     ['Shift+B', 'Buy limit at bid'], ['Shift+S', 'Sell limit at ask'],
@@ -322,6 +352,6 @@
   Object.assign(DTA, {
     RTH_OPEN, RTH_CLOSE, BAR_SEC, SYMBOLS, SYMBOL_SETS, SESSIONS, TIMEFRAMES, SCENARIOS, NEWS,
     BOTS, BOT_QUIPS, AVATARS, EMOTES, PLAYER_COLORS, MAX_PLAYERS, MODES, DUEL_TYPES, DEFAULT_SETTINGS,
-    COMMISSION, MAINT_MARGIN, MAINT_MARGIN_HTB, TIPS, HOTKEYS
+    COMMISSION, MAINT_MARGIN, MAINT_MARGIN_HTB, TIPS, MARKET_TIPS, HOTKEYS
   });
 })();

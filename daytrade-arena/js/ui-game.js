@@ -897,7 +897,7 @@
     // The next release that moves this symbol (crude inventories don't matter to a small-cap runner).
     const next = (g.cal || []).filter((e) => !e.done && e.t > g.t && (!e.moves || e.moves.includes(S.sym))).sort((a, b) => a.t - b.t)[0];
     if (next) parts.push(el('span.ci.cal' + (next.imp >= 3 ? '.hot' : ''), { title: next.long + (next.fc ? ' · expected ' + next.fc : '') }, '⏱ ' + next.name + ' ' + fmtClock(next.t, false) + ' · in ' + fmtDuration(((next.t - g.t) / g.speed) * 1000)));
-    if (s.ssr) parts.push(el('span.ci.ssr', { title: 'Short sale restriction: down 10% on the day, shorts only on an uptick' }, 'SSR'));
+    if (s.ssr) parts.push(el('span.ci.ssr', { title: 'Short sale restriction: down 10% on the day, so a new short must be a limit above the bid' }, 'SSR'));
     if (s.runner) parts.push(el('span.ci.run', { title: s.runner.catalyst }, '📰 ' + s.runner.catalyst));
     const key = parts.map((p) => p.textContent).join('|');
     if (box.dataset.key === key) return;
@@ -1132,7 +1132,13 @@
         if (left === S.lastCd) return;
         S.lastCd = left;
         cd.innerHTML = '';
-        if (!S.tip) S.tip = DTA.TIPS[Math.floor(Math.random() * DTA.TIPS.length)];
+        if (!S.tip) {
+          // Mostly a tip about what's on the board (crude's EIA report, gold's 8:20 open, runner halts...).
+          const pool = [];
+          for (const k of g.symList) for (const tip of DTA.MARKET_TIPS[g.syms[k].cls] || []) if (!pool.includes(tip)) pool.push(tip);
+          const list = pool.length && Math.random() < 0.75 ? pool : DTA.TIPS;
+          S.tip = list[Math.floor(Math.random() * list.length)];
+        }
         const box = el('div.cd-box', [
           el('div.cd-num', { key: left }, left > 0 ? String(left) : 'GO'),
           el('div.cd-title', g.scenario ? g.scenario.icon + ' ' + g.scenario.name : modeTitle(g) + (g.rounds > 1 ? ' · round ' + g.round + ' of ' + g.rounds : '')),

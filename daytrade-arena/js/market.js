@@ -102,7 +102,7 @@
       this.prof = P.profileOf(def);
       this.salt = hashStr(def.sym + ':' + market.seed) % 100000;
       this.lead = def.lead ? market.drivers[def.lead] : null;
-      this.y = new P.Path({ name: def.sym, sd: this.lead ? 0 : def.idio || 0, prof: this.prof, rng: rng.fork('path'), volScale: market.volScale, tails: def.cls === 'small' ? 2 : 1 });
+      this.y = new P.Path({ name: def.sym, sd: this.lead ? 0 : def.idio || 0, prof: this.prof, rng: rng.fork('path'), volScale: market.volScale, tails: def.cls === 'small' ? 1.5 : 1 });
       const betas = [];
       for (const k in def.drivers || {}) betas.push([market.drivers[k].path, def.drivers[k]]);
       const c = this.lead ? this.lead.c : Math.log(Math.max(this.tick * 20, def.p * Math.exp(rng.normal() * (def.runner ? 0.02 : 0.05))));

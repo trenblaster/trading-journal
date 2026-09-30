@@ -179,7 +179,7 @@
     const shortInterest = Math.round(clampN(r.lognormal(0.12, 0.6), 0.03, 0.45) * 100) / 100;
     const def = {
       sym: base.sym, name: base.name, sector: base.sector, cls: 'small', kind: 'stock', mult: 1, runner: true,
-      p: prev, tick: 0.01, drivers: { MKT: 0.5, SMALL: 0.8 }, idio: clampN(r.lognormal(0.11, 0.3), 0.06, 0.2), reactor: 1.1,
+      p: prev, tick: 0.01, drivers: { MKT: 0.5, SMALL: 0.8 }, idio: clampN(r.lognormal(0.08, 0.3), 0.05, 0.15), reactor: 1.1,
       depth: Math.round((gapPrice < 5 ? 4200 : gapPrice < 10 ? 2600 : 1400) * liq / 100) * 100,
       spread: gapPrice < 3 ? 1 : gapPrice < 10 ? 2 : 3, spreadVol: 0.7,
       printRate: 2.2 * liq, printSize: Math.round((gapPrice < 5 ? 900 : gapPrice < 10 ? 500 : 300) * liq / 100) * 100,

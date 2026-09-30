@@ -235,7 +235,8 @@
       const list = this.candidates();
       if (!list.length) return;
       if (!this.focus || !this.m.syms[this.focus] || this.rng.float() < 0.01) {
-        const liquid = list.filter((s) => s.def.kind === 'future' || s.def.depth >= 1500);
+        // Scalpers want deep, steady books: futures and liquid stocks, not names that halt.
+        const liquid = list.filter((s) => (s.def.kind === 'future' || s.def.depth >= 1500) && !s.def.halts);
         this.focus = this.rng.pick(liquid.length ? liquid : list).sym;
       }
       const sim = this.m.syms[this.focus];
@@ -251,13 +252,14 @@
       const e9 = c.cl.length > 3 ? ind.ema(c.cl, 9)[c.i] : c.px;
       const tgt = Math.max(4 * sim.tick, 0.2 * c.atr), stp = Math.max(5 * sim.tick, 0.28 * c.atr);
       if (this.skip()) return;
+      const cap = sim.def.halts ? 1500 : Infinity;
       if (bs > 1.35 * as && c.px >= e9) {
         const px = book.b[0][0] * sim.tick;
-        const qty = this.size(sim, stp, 0.7);
+        const qty = Math.min(cap, this.size(sim, stp, 0.7));
         if (qty > 0) { const r = this.place({ sym: sim.sym, side: 1, type: 'LMT', qty, px, tp: px + tgt, sl: px - stp }); if (r.ok) this.e.orders.get(r.id).botPlaced = now; }
       } else if (as > 1.35 * bs && c.px <= e9 && this.canShort(sim)) {
         const px = book.a[0][0] * sim.tick;
-        const qty = this.size(sim, stp, 0.7);
+        const qty = Math.min(cap, this.size(sim, stp, 0.7));
         if (qty > 0) { const r = this.place({ sym: sim.sym, side: -1, type: 'LMT', qty, px, tp: px - tgt, sl: px + stp }); if (r.ok) this.e.orders.get(r.id).botPlaced = now; }
       }
     }
@@ -425,22 +427,34 @@
         const mem = this.mem[sim.sym] || (this.mem[sim.sym] = { used: {}, crossed: {} });
         if (q !== 0) {
           mem.held = (mem.held || 0) + 1;
+          mem.inTrade = true;
           if (mem.held > 30) { this.e.flatten(this.pid, sim.sym); mem.held = 0; }
           continue;
+        }
+        if (mem.inTrade) {
+          // Just got out: after a loss, sit out a while.
+          mem.inTrade = false;
+          const a = this.acct();
+          const lastFill = a.fills.filter((f) => f.sym === sim.sym).pop();
+          if (lastFill && lastFill.realized < 0) mem.nextAt = Math.max(mem.nextAt || 0, t + this.ctx.tfSec * 12);
         }
         mem.held = 0;
         const w = this.workingEntry(sim.sym);
         if (w) { if (t - w.created > this.ctx.tfSec * 6) this.e.cancel(this.pid, w.id); continue; }
         if (this.working(sim.sym) || t < (mem.nextAt || 0)) continue;
-        const zs = sim.zones(t).map((z) => ({ px: Math.exp(z.L), s: z.s, key: z.key, label: z.label })).filter((z) => z.s >= 0.45);
+        // Only levels worth trading: strong ones, or several stacked together.
+        const zs = sim.zones(t).map((z) => ({ px: Math.exp(z.L), s: z.s, key: z.key, label: z.label, conf: z.label.indexOf('·') >= 0 })).filter((z) => z.s >= 0.55 || z.conf);
         const px = c.px, atr = c.atr;
         const prevC = c.bars[c.i - 1] ? c.bars[c.i - 1].c : c.last.o;
         // Remember which levels price has just crossed, for break-and-retest.
         for (const z of zs) if ((prevC - z.px) * (c.last.c - z.px) < 0) mem.crossed[z.key] = { dir: Math.sign(c.last.c - z.px), at: t, px: z.px };
+        // Don't stand in front of a train: three strong candles straight into the level usually break it.
+        const n3 = c.bars.slice(-3);
+        const push = n3.length === 3 && n3.every((b) => Math.abs(b.c - b.o) > 0.55 * atr) && (n3.every((b) => b.c > b.o) || n3.every((b) => b.c < b.o)) ? Math.sign(n3[2].c - n3[2].o) : 0;
         let best = null;
         for (const z of zs) {
           const d = z.px - px;
-          if (Math.abs(d) > atr * 0.9 || (mem.used[z.key] || 0) >= 2) continue;
+          if (Math.abs(d) > atr * 0.9 || (mem.used[z.key] || 0) >= 1) continue;
           const cr = mem.crossed[z.key];
           if (cr && t - cr.at < this.ctx.tfSec * 12 && Math.sign(px - z.px) === cr.dir && Math.abs(d) < atr * 0.5) {
             const sc = z.s + 0.2;
@@ -448,14 +462,15 @@
             continue;
           }
           const approaching = Math.sign(d) === Math.sign(c.last.c - c.last.o) || Math.abs(d) < atr * 0.25;
-          if (approaching && Math.abs(d) > sim.tick) { const sc = z.s; if (!best || sc > best.sc) best = { z, side: -Math.sign(d), kind: 'fade', sc }; }
+          if (push && push === Math.sign(d)) continue;
+          if (approaching && Math.abs(d) > sim.tick) { const sc = z.s + (z.conf ? 0.15 : 0); if (!best || sc > best.sc) best = { z, side: -Math.sign(d), kind: 'fade', sc }; }
         }
         if (!best || this.skip()) continue;
         const { z, side } = best;
         if (side < 0 && !this.canShort(sim)) continue;
         const tk = sim.tick;
         const entry = best.kind === 'fade' ? z.px + side * tk : z.px + side * tk * 2;
-        const sl = z.px - side * Math.max(0.6 * atr, tk * 4);
+        const sl = z.px - side * Math.max(0.7 * atr, tk * 4);
         const risk = Math.abs(entry - sl);
         const nxt = zs.filter((y) => (y.px - entry) * side > risk * 1.2).sort((a, b) => Math.abs(a.px - entry) - Math.abs(b.px - entry))[0];
         const tp = nxt ? nxt.px - side * tk * 2 : entry + side * risk * 2;

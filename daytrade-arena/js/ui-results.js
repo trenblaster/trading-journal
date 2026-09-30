@@ -133,7 +133,7 @@
       const react = x.reactions.length ? el('ul.recap-rx', x.reactions.map((q) => el('li', [el('span.muted', fmtClock(q.t, false)), ' ', el('b', q.label), ' ', q.kind]))) : el('p.muted.small', 'No clean tests of a key level while you were trading.');
       cards.appendChild(el('div.recap-card', [
         el('div.recap-head', [el('b', x.sym), el('span.' + (x.chg >= 0 ? 'pos' : 'neg'), fmtPct(x.chg, 2) + ' on the day')]),
-        x.type ? el('div.recap-type', x.type + (x.marketType ? ' · market: ' + x.marketType.toLowerCase() : '')) : null,
+        x.type ? el('div.recap-type', { title: 'How the day was set up to play out. In a short match you only see part of it.' }, x.type + (x.marketType ? ' · market: ' + x.marketType.toLowerCase() : '')) : null,
         x.play ? el('p.small', x.play) : null,
         el('p.small.muted', 'Key levels: ' + x.holds + ' held, ' + x.breaks + ' broke'),
         react

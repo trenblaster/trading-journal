@@ -453,7 +453,7 @@
       el('button.btn.small', { type: 'button', title: 'Flip the position (R)', onclick: () => reverse() }, 'Reverse'),
       el('button.btn.small', { type: 'button', title: 'Cancel orders on this symbol (C)', onclick: () => cancelAll() }, 'Cancel all')
     ]));
-    box.appendChild(el('div.tk-pos', { id: 'tkPos' }));
+    if (window.innerWidth < 1000) box.appendChild(el('div.tk-pos', { id: 'tkPos' }));
     refreshTicket();
     updateSpectate();
   }
@@ -707,6 +707,11 @@
     const label = phase === 'countdown' ? 'opens in ' : phase === 'intermission' ? 'next round in ' : phase === 'call' ? 'call closes in ' : g.mode === 'elim' ? 'bell in ' : 'left ';
     lt.textContent = phase === 'results' ? 'closed' : phase === 'reveal' ? 'revealing…' : label + fmtDuration(left);
     lt.classList.toggle('urgent', phase === 'live' && left < 15000);
+    // Final ten seconds: a tick each second.
+    if (phase === 'live' && left < 10500 && left > 300) {
+      const sec = Math.ceil(left / 1000);
+      if (sec !== S.lastTickSec) { S.lastTickSec = sec; DTA.sfx.play('tick'); }
+    } else S.lastTickSec = null;
     let prog = (g.t - g.start) / Math.max(1, g.end - g.start);
     if (g.stopAt) prog = (g.t - (g.stopAt - (g.duel === 'predict' ? g.predict.K * 60 : 900))) / (g.duel === 'predict' ? g.predict.K * 60 : 900);
     $('#hudProgress').style.width = clamp(prog * 100, 0, 100) + '%';
@@ -953,6 +958,8 @@
       const now = performance.now();
       if (now - S.lastFillSound > 120) { DTA.sfx.play('fill'); S.lastFillSound = now; }
       const liq = f.liq === 'X' ? ' (liquidated)' : f.liq === 'C' ? ' (closing auction)' : f.liq === 'A' ? ' (reopen auction)' : '';
+      // Positions closed by the bell show up in the results; no toast storm at the close.
+      if (f.liq === 'C') { chart.dirty = true; return; }
       ui.toast((f.side > 0 ? 'Bought ' : 'Sold ') + fmtQty(f.qty) + ' ' + f.sym + ' @ ' + fmtPrice(f.px, s ? s.tick : 0.01) + liq + (f.realized ? ' · ' + fmtSignedMoney(f.realized) : ''), f.realized > 0 ? 'good' : f.realized < 0 ? 'bad' : 'fill', { ms: 2200, icon: f.side > 0 ? '🟢' : '🔴' });
       if (f.realized && Math.abs(f.realized) > 1) {
         const r = $('#hudPnl').getBoundingClientRect();

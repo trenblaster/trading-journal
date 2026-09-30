@@ -83,7 +83,7 @@ a { color: var(--accent); }
 .icon-btn:hover { background: var(--panel-3); color: var(--text-1); }
 .linkbtn { background: none; border: none; color: var(--text-2); text-decoration: underline; text-underline-offset: 3px; padding: 4px 6px; font-size: 13px; }
 .linkbtn:hover { color: var(--text-1); }
-input[type="text"], input:not([type]), input[type="number"], .select, select {
+input[type="text"], input:not([type]), input[type="number"], input[type="password"], .select, select {
   background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; color: var(--text-1); min-width: 0;
 }
 input:focus, select:focus { border-color: var(--accent); outline: none; }
@@ -350,10 +350,10 @@ input:focus, select:focus { border-color: var(--accent); outline: none; }
 .ladder-panel { flex: 1; min-height: 220px; }
 .ladder-wrap { position: relative; flex: 1; min-height: 0; }
 .ladder-wrap canvas, .tape-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.tape-panel { height: 190px; flex: none; }
+.tape-panel { height: 150px; flex: none; }
 .tape-wrap { position: relative; flex: 1; min-height: 0; }
 .tape-speed { margin-left: auto; }
-.ticket-panel { flex: none; padding: 10px; gap: 8px; }
+.ticket-panel { flex: none; padding: 8px 10px; gap: 6px; }
 .tk-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .tk-row.split > * { flex: 1; }
 .tk-label { font-size: 11px; color: var(--text-3); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; min-width: 42px; }
@@ -364,12 +364,12 @@ input:focus, select:focus { border-color: var(--accent); outline: none; }
 .tk-input button { border: none; background: var(--panel-3); width: 28px; align-self: stretch; color: var(--text-2); font-weight: 800; }
 .tk-input button:hover { color: var(--text-1); }
 .tk-presets { display: flex; gap: 4px; flex-wrap: wrap; }
-.tk-presets button { border: 1px solid var(--line); background: var(--bg); color: var(--text-2); border-radius: 6px; font-size: 11px; font-weight: 700; padding: 3px 7px; }
+.tk-presets button { border: 1px solid var(--line); background: var(--bg); color: var(--text-2); border-radius: 6px; font-size: 11px; font-weight: 700; padding: 2px 6px; }
 .tk-presets button:hover { color: var(--text-1); border-color: var(--axis); }
 .tk-bracket { display: grid; grid-template-columns: auto 1fr 1fr; gap: 6px; align-items: center; }
 .tk-risk { font-size: 12px; color: var(--text-2); min-height: 17px; }
 .tk-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.tk-actions .btn { padding: 10px 6px; font-size: 14px; display: flex; flex-direction: column; line-height: 1.15; }
+.tk-actions .btn { padding: 8px 6px; font-size: 14px; display: flex; flex-direction: column; line-height: 1.15; }
 .tk-actions .btn small { font-size: 11px; font-weight: 600; opacity: .85; }
 .tk-quick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .tk-pos { font-size: 12px; color: var(--text-2); padding: 6px 8px; background: var(--bg); border-radius: 8px; border: 1px solid var(--line); font-variant-numeric: tabular-nums; }
@@ -419,6 +419,7 @@ input:focus, select:focus { border-color: var(--accent); outline: none; }
 
 /* ---------- results ---------- */
 #results { background: radial-gradient(1000px 500px at 50% -10%, rgba(201, 133, 0, .12), transparent 60%), var(--bg); overflow-y: auto; }
+#results > *, #home > .home-wrap { flex-shrink: 0; }
 .results-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 22px 20px 6px; flex-wrap: wrap; max-width: 1200px; width: 100%; margin: 0 auto; }
 .results-head h1 { font-size: clamp(24px, 4vw, 36px); }
 .results-actions { display: flex; gap: 8px; flex-wrap: wrap; }

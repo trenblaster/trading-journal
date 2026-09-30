@@ -95,7 +95,7 @@
       const s = this.env.sym();
       if (!s) return;
       const head = 22;
-      this.rowH = w < 300 ? 20 : 19;
+      this.rowH = w < 300 ? 20 : 17;
       const rows = Math.max(5, Math.floor((h - head) / this.rowH));
       const bid = s.bid, ask = s.ask;
       const mid = bid !== null && ask !== null ? (bid + ask) / 2 : s.last;

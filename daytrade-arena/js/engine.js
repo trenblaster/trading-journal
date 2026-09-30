@@ -553,7 +553,8 @@
       for (const o of this.orders.values()) {
         if (o.pid !== pid || (o.status !== 'working' && o.status !== 'pending')) continue;
         const tick = this.m.syms[o.sym].tick;
-        ord.push([o.id, o.sym, o.side, o.type, o.qty, o.filled, o.limitIdx ? o.limitIdx * tick : null, o.stopIdx ? o.stopIdx * tick : null, o.status, o.tag, o.parent, o.trail ? o.trail * tick : 0]);
+        const px = (idx) => Math.round(idx * tick * 10000) / 10000;
+        ord.push([o.id, o.sym, o.side, o.type, o.qty, o.filled, o.limitIdx ? px(o.limitIdx) : null, o.stopIdx ? px(o.stopIdx) : null, o.status, o.tag, o.parent, o.trail ? px(o.trail) : 0]);
       }
       return {
         cash: round2(a.cash), eq: round2(eq), start: a.start, bp: round2(Math.max(0, eq) * this.o.leverage), used: round2(g + this.pendingIncrease(a)),

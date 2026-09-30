@@ -180,6 +180,7 @@
       this.drawGrid(ctx, L, bars, i0, i1, n);
       if (this.show.heat) this.drawHeat(ctx, L, s, i0, i1, n);
       this.drawHalts(ctx, L, n, s);
+      if (this.env.highlight) this.drawHighlight(ctx, L, n, s);
       if (this.show.vp) this.drawProfile(ctx, L, raw, s);
       if (this.show.vol) this.drawVolume(ctx, L, raw, i0, i1, n, volH);
       this.drawPrevClose(ctx, L, s);
@@ -272,6 +273,34 @@
         ctx.fillStyle = th.warn; ctx.font = FONT_B; ctx.textAlign = 'left';
         ctx.fillText('HALT', x0 + 4, 30);
       }
+    }
+
+    // Trade review: shade the holding period and mark entry and exit prices.
+    drawHighlight(ctx, L, n, s) {
+      const hl = this.env.highlight();
+      if (!hl) return;
+      const th = this.th, start = this.env.start();
+      const x0 = this.xOf((hl.t0 - start) / this.tf - 0.5, L, n), x1 = this.xOf((hl.t1 - start) / this.tf + 0.5, L, n);
+      const col = hl.pnl >= 0 ? th.up : th.down;
+      ctx.fillStyle = alpha(col, 0.08);
+      ctx.fillRect(x0, 0, Math.max(3, x1 - x0), L.mainH);
+      ctx.strokeStyle = alpha(col, 0.6); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(Math.round(x0) + 0.5, 0); ctx.lineTo(Math.round(x0) + 0.5, L.mainH); ctx.moveTo(Math.round(x1) + 0.5, 0); ctx.lineTo(Math.round(x1) + 0.5, L.mainH); ctx.stroke();
+      ctx.setLineDash([5, 4]);
+      for (const [p, label] of [[hl.entry, 'Entry'], [hl.exit, 'Exit']]) {
+        const y = Math.round(this.yOf(p)) + 0.5;
+        ctx.strokeStyle = th.text2; ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
+        ctx.fillStyle = th.text2; ctx.font = FONT; ctx.textAlign = 'right';
+        ctx.fillText(label + ' ' + fmtPrice(p, 0.0001), x0 - 4, y + 4);
+      }
+      ctx.setLineDash([]);
+      const text = (hl.side > 0 ? 'Long ' : 'Short ') + fmtQty(hl.qty) + ' · ' + fmtSignedMoney(hl.pnl) + ' · held ' + DTA.fmtHold(hl.t1 - hl.t0);
+      ctx.font = FONT_B;
+      const tw = ctx.measureText(text).width + 16;
+      const tx = clamp((x0 + x1) / 2 - tw / 2, 4, L.plotW - tw - 4);
+      roundRect(ctx, tx, 26, tw, 22, 5);
+      ctx.fillStyle = th.panel; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.fillStyle = th.text; ctx.textAlign = 'center'; ctx.fillText(text, tx + tw / 2, 41);
     }
 
     // Bookmap-style resting liquidity: for each candle column, the average size resting at each price

@@ -509,6 +509,7 @@
       g.tickN++;
       if (m.t - g.lastSample >= g.speed * 0.5 || g.lastSample < 0) { e.sample(m.t); g.lastSample = m.t; }
       this.releaseDelayed(now);
+      if (g.tickN % 4 === 0) this.commentary(limit);
       this.modeChecks(limit);
       if (this.phase === 'live') this.broadcastTick(true);
     }
@@ -540,6 +541,30 @@
       }
       if (g.duel === 'scalp') {
         if (m.t >= g.stopAt - 1e-6) this.scalpRoundEnd();
+      }
+    }
+
+    // Play-by-play in chat: lead changes and time warnings.
+    commentary(limit) {
+      const g = this.g, m = g.market, e = g.engine;
+      const now = Date.now();
+      const rows = this.alive().map((p) => ({ p, eq: e.equity(e.acct(p.id)), st: e.acct(p.id).start })).sort((a, b) => b.eq - a.eq);
+      if (rows.length > 1) {
+        const lead = rows[0];
+        if (g.leader && lead.p.id !== g.leader && lead.eq > lead.st && now - (g.lastLeadMsg || 0) > 12000) {
+          this.system('👑 ' + lead.p.avatar + ' ' + lead.p.name + ' takes the lead at ' + fmtSignedMoney(lead.eq - lead.st, 0), 'good');
+          g.lastLeadMsg = now;
+        }
+        g.leader = lead.p.id;
+      }
+      const end = limit !== null && limit !== undefined ? limit : m.end;
+      const left = (end - m.t) / g.speed;
+      const key = g.mode === 'elim' ? 'r' + g.round : g.duel === 'scalp' ? 's' + g.round : 'end';
+      g.warned = g.warned || {};
+      const warnAt = g.mode === 'elim' || g.duel === 'scalp' ? 15 : 60;
+      if (!g.warned[key] && left <= warnAt && left > 1 && (g.mode === 'elim' || g.duel === 'scalp' || (m.end - m.start) / g.speed > 150)) {
+        g.warned[key] = true;
+        this.system(g.mode === 'elim' ? '⏰ ' + warnAt + ' seconds to the round ' + g.round + ' bell. The lowest account goes home' : g.duel === 'scalp' ? '⏰ ' + warnAt + ' seconds left in round ' + g.round : '⏰ One minute to the closing bell', 'warn');
       }
     }
 

@@ -219,7 +219,9 @@
     if (!g) return el('div.empty', 'Replay data is not available.');
     const players = new Map(r.rows.map((x) => [x.id, { name: x.name, avatar: x.avatar, color: x.color }]));
     const me = C().me;
-    const state = { sym: r.syms[0], t: r.start, speed: 120, showAll: true };
+    const trip = R.focusTrip;
+    R.focusTrip = null;
+    const state = { sym: trip && r.syms.includes(trip.sym) ? trip.sym : r.syms[0], t: r.start, speed: 120, showAll: true, trip };
     const cv = el('canvas');
     const env = {
       sym: () => g.syms[state.sym], start: () => r.start, now: () => state.t, speed: () => 1,
@@ -227,7 +229,8 @@
       fills: (sym) => r.fills.filter((f) => f[0] === me && f[2] === sym).map((f) => ({ t: f[1], sym: f[2], side: f[3], qty: f[4], px: f[5] })),
       rivals: (sym) => state.showAll ? r.fills.filter((f) => f[0] !== me && f[2] === sym) : [],
       news: (sym) => r.news.filter((n) => !n.sym || n.sym === sym),
-      player: (id) => players.get(id), onModify() {}, onCancel() {}
+      player: (id) => players.get(id), onModify() {}, onCancel() {},
+      highlight: () => (state.trip && state.trip.sym === state.sym ? { t0: state.trip.open, t1: state.trip.close, entry: state.trip.entry, exit: state.trip.exit, side: state.trip.side, qty: state.trip.qty, pnl: state.trip.pnl } : null)
     };
     const chart = new DTA.Chart(cv, env, { replay: true });
     chart.setTf(g.tf || 60);
@@ -269,7 +272,19 @@
       legend
     ]);
     requestAnimationFrame(() => {
-      setT(r.end);
+      if (state.trip) {
+        // Frame the trade: its bars take about half the width, with room either side.
+        const t = state.trip;
+        const tf = t.close - t.open < 600 ? 15 : t.close - t.open < 3600 ? 60 : 300;
+        chart.setTf(tf); tfSel.value = String(tf);
+        setT(Math.min(r.end, t.close + tf * 20));
+        chart.render();
+        const plotW = chart.layout ? chart.layout.plotW : 800;
+        const bars = Math.max(1, (t.close - t.open) / tf);
+        chart.barW = clamp((plotW * 0.45) / bars, 3, 26);
+        chart.right = (t.close - r.start) / tf + Math.max(6, bars * 0.5);
+        chart.dirty = true;
+      } else setT(r.end);
       const loop = () => { if (!cv.isConnected) return; if (chart.dirty) { chart.dirty = false; chart.render(); } requestAnimationFrame(loop); };
       loop();
     });
@@ -287,10 +302,17 @@
     if (!me) return el('div.empty', 'You watched this match.');
     const trips = me.tripList.slice().reverse();
     if (!trips.length) return el('div.res-panel', el('div.empty', 'You made no round trips this match.'));
-    const rows = trips.map((t) => el('tr', [el('td', el('b', t.sym)), el('td.l.' + (t.side > 0 ? 'pos' : 'neg'), t.side > 0 ? 'Long' : 'Short'), el('td', fmtQty(t.qty)), el('td', t.entry.toFixed(2)), el('td', t.exit.toFixed(2)), el('td.' + (t.pnl >= 0 ? 'pos' : 'neg'), fmtSignedMoney(t.pnl)), el('td', fmtHold(t.close - t.open)), el('td', fmtClock(t.open) + ' → ' + fmtClock(t.close))]));
+    const review = (t) => {
+      if (!r.singleMarket) return;
+      R.focusTrip = t;
+      R.tab = 'replay';
+      for (const x of $$('[data-rtab]')) x.classList.toggle('active', x.dataset.rtab === 'replay');
+      renderTab();
+    };
+    const rows = trips.map((t) => el('tr', { style: r.singleMarket ? { cursor: 'pointer' } : null, title: r.singleMarket ? 'Replay this trade' : null, onclick: () => review(t) }, [el('td', el('b', t.sym)), el('td.l.' + (t.side > 0 ? 'pos' : 'neg'), t.side > 0 ? 'Long' : 'Short'), el('td', fmtQty(t.qty)), el('td', t.entry.toFixed(2)), el('td', t.exit.toFixed(2)), el('td.' + (t.pnl >= 0 ? 'pos' : 'neg'), fmtSignedMoney(t.pnl)), el('td', fmtHold(t.close - t.open)), el('td', fmtClock(t.open) + ' → ' + fmtClock(t.close))]));
     const w = trips.filter((t) => t.pnl > 0);
     const summary = trips.length + ' trades · ' + Math.round((w.length / trips.length) * 100) + '% winners · average winner ' + fmtSignedMoney(me.avgWin) + ' · average loser ' + fmtSignedMoney(me.avgLoss) + ' · longs ' + fmtSignedMoney(me.longPnl, 0) + ' · shorts ' + fmtSignedMoney(me.shortPnl, 0);
-    return el('div.res-panel', [el('div.ph', [el('h3', 'Your trades'), el('span.muted.small', summary)]), el('div.res-scroll', el('table.grid-table', [el('thead', el('tr', ['Symbol', 'Side', 'Size', 'Entry', 'Exit', 'P&L', 'Held', 'Time'].map((h, k) => el('th' + (k < 2 ? '.l' : ''), h)))), el('tbody', rows)]))]);
+    return el('div.res-panel', [el('div.ph', [el('h3', 'Your trades'), el('span.muted.small', summary + (r.singleMarket ? ' · click a trade to replay it' : ''))]), el('div.res-scroll', el('table.grid-table', [el('thead', el('tr', ['Symbol', 'Side', 'Size', 'Entry', 'Exit', 'P&L', 'Held', 'Time'].map((h, k) => el('th' + (k < 2 ? '.l' : ''), h)))), el('tbody', rows)]))]);
   }
 
   // ---------- exports ----------

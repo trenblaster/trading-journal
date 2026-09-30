@@ -124,12 +124,25 @@
     });
     client.on('results', (r) => { ui.results.show(r); });
     client.on('disconnected', (reason) => onDisconnected(reason));
+    client.on('hostClosed', (reason) => hostGone(reason));
     ui.game.bind(client);
     setInterval(() => { if (app.screen === 'lobby' && app.client === client) ui.lobby.renderNetStatus(); }, 2000);
   }
 
+  // The host left on purpose: no point trying to reconnect.
+  function hostGone(reason) {
+    if (app.leaving || app.host || app.hostGoneShown) return;
+    app.hostGoneShown = true;
+    try { if (app.client && app.client.net) app.client.net.close(); } catch (e) { /* ignore */ }
+    ui.modal('Room closed', DTA.el('div', [
+      DTA.el('p', (reason || 'The host closed the room') + '. Thanks for playing!'),
+      DTA.el('div', { style: { marginTop: '12px' } }, DTA.el('button.btn.primary', { onclick: () => { ui.closeModal(); leave(); } }, 'Back to home'))
+    ]), { onClose: () => { if (!app.leaving) leave(); } });
+  }
+
   async function onDisconnected(reason) {
     if (app.leaving || app.host) return;
+    if ((app.client && app.client.hostClosed) || /closed the room/i.test(reason || '')) { hostGone(reason); return; }
     const code = app.code;
     ui.toast('Connection lost: ' + reason + '. Reconnecting…', 'warn', { ms: 5000 });
     app.reconnecting = true;
@@ -151,9 +164,17 @@
 
   function leave() {
     app.leaving = true;
+    app.hostGoneShown = false;
     ui.results.stopReplay();
     try { if (app.client && app.client.net) app.client.net.close(); } catch (e) { /* ignore */ }
-    if (app.host) { app.host.destroy(); }
+    if (app.host) {
+      // Tell everyone before the connections drop, then close them a moment later.
+      const host = app.host, hn = app.hostNet;
+      try { host.broadcast({ t: 'closed', reason: 'The host closed the room' }); } catch (e) { /* ignore */ }
+      host.destroy();
+      setTimeout(() => { try { hn.destroy(); } catch (e) { /* ignore */ } }, 300);
+      app.hostNet = null;
+    }
     if (app.hostNet) { app.hostNet.destroy(); }
     Object.assign(app, { client: null, host: null, hostNet: null, solo: false, code: null });
     ui.show('home');

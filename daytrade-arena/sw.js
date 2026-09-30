@@ -1,7 +1,7 @@
 // Day Trade Arena service worker: the game opens offline after the first visit (practice vs bots and
 // same-browser tabs work without a connection; online rooms need the internet).
 // Network first for game files so updates arrive straight away; the cache is the fallback.
-const CACHE = 'daytrade-arena-v2';
+const CACHE = 'daytrade-arena-v3';
 const FILES = [
   './', './index.html', './manifest.webmanifest', './css/arena.css', './icons/icon-192.png', './icons/icon-512.png',
   './vendor/peerjs.min.js',

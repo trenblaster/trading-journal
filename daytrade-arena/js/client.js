@@ -56,6 +56,7 @@
           this.emit('welcome', m);
           break;
         case 'reject': this.emit('rejected', m.reason); break;
+        case 'closed': this.hostClosed = true; this.emit('hostClosed', m.reason || 'The host closed the room'); break;
         case 'pong': this.rtt = Date.now() - m.ts; break;
         case 'lobby':
           this.settings = m.settings;

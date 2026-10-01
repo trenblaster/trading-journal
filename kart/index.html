@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Revision Rally</title>
+<meta name="theme-color" content="#14111c">
+<meta name="description" content="A kart racing revision game for Cambridge AS Economics, Accounting and English Language.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Russo+One&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<style>
+/* Layout: full-screen racing canvas; arcade panels (dark glass, chequered accents) float over it. */
+:root {
+  color-scheme: dark;
+  --bg: #14111c;
+  --panel: rgba(24, 20, 36, 0.94);
+  --line: #3a3150;
+  --text: #f4f0ff;
+  --muted: #b3a9cc;
+  --hot: #ff4f6d;
+  --gold: #ffcf3f;
+  --go: #2ecc71;
+  --econ: #e0566e; --acc: #22a393; --eng: #8d6fd1;
+  --f-display: 'Russo One', 'Arial Black', system-ui, sans-serif;
+  --f-body: 'Atkinson Hyperlegible', 'Segoe UI', system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 var(--f-body); overflow: hidden; }
+button, input, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+[hidden] { display: none !important; }
+#stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: #000; }
+#road { display: block; }
+
+/* menus */
+#menus { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; background: linear-gradient(180deg, rgba(10, 8, 18, 0.25), rgba(10, 8, 18, 0.7)); z-index: 10; }
+.screen { width: min(760px, 100%); max-height: 100%; overflow: auto; background: var(--panel); border: 2px solid var(--line); border-radius: 14px; padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); backdrop-filter: blur(6px); }
+.screen h2 { margin: 0; font: 400 26px/1.1 var(--f-display); letter-spacing: 0.5px; text-wrap: balance; }
+.screen h3 { margin: 6px 0 0; font: 400 17px var(--f-display); }
+.screen p { margin: 0; }
+.head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.wallet { font: 400 15px var(--f-display); color: var(--gold); }
+.logo { font: 400 clamp(38px, 9vw, 68px)/0.95 var(--f-display); letter-spacing: 1px; text-transform: uppercase; background: linear-gradient(180deg, #fff 30%, var(--gold)); -webkit-background-clip: text; background-clip: text; color: transparent; text-shadow: none; }
+.logo-sub { color: var(--muted); }
+.flag { height: 10px; background: repeating-conic-gradient(#fff 0 25%, #111 0 50%) 0 0 / 20px 20px; border-radius: 3px; }
+.menu { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.btn { border: 2px solid var(--line); background: #231d33; border-radius: 10px; padding: 10px 16px; cursor: pointer; font: 400 16px var(--f-display); letter-spacing: 0.3px; transition: transform 0.08s, background 0.15s; }
+.btn:hover:not(:disabled) { background: #2f2645; transform: translateY(-1px); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-go { background: var(--hot); border-color: #ff8098; color: #fff; }
+.btn-go:hover:not(:disabled) { background: #ff6680; }
+.btn-big { padding: 16px; font-size: 20px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.seg { border: 2px solid var(--line); background: #1c1729; border-radius: 999px; padding: 6px 14px; cursor: pointer; font-weight: 700; }
+.seg.on { background: var(--gold); border-color: var(--gold); color: #1a1426; }
+.seg:disabled { opacity: 0.4; cursor: not-allowed; }
+.muted { color: var(--muted); font-size: 14px; }
+.note { background: #1c1729; border-left: 4px solid var(--gold); padding: 8px 12px; border-radius: 6px; font-size: 15px; }
+#study-line { color: var(--muted); font-size: 14px; }
+.track-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+.track-card { text-align: left; border: 2px solid var(--line); background: #1c1729; border-radius: 12px; padding: 0 0 12px; cursor: pointer; display: flex; flex-direction: column; gap: 4px; overflow: hidden; min-width: 0; }
+.track-card:hover:not(:disabled) { border-color: var(--gold); }
+.track-card:disabled { opacity: 0.5; cursor: not-allowed; }
+.track-card b, .track-card small, .track-card .medal { padding: 0 12px; }
+.track-card b { font: 400 17px var(--f-display); }
+.track-card small { color: var(--muted); }
+.track-art { height: 70px; background: linear-gradient(180deg, var(--a) 0 45%, var(--b) 45% 100%); position: relative; }
+.track-art::after { content: ''; position: absolute; left: 50%; bottom: 0; width: 70%; height: 55%; transform: translateX(-50%); background: var(--c); clip-path: polygon(44% 0, 56% 0, 100% 100%, 0 100%); }
+.medal { font-size: 14px; font-weight: 700; color: var(--gold); }
+.up-grid { display: flex; flex-direction: column; gap: 8px; }
+.up { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: #1c1729; border-radius: 10px; padding: 10px 12px; }
+.up small { color: var(--muted); }
+.pips { color: var(--gold); letter-spacing: 2px; }
+.tag { font: 400 14px var(--f-display); color: var(--go); }
+.swatch { width: 34px; height: 34px; border-radius: 50%; border: 3px solid transparent; cursor: pointer; }
+.swatch.on { border-color: #fff; }
+#kart-preview { display: flex; justify-content: center; }
+.kart-img { width: 200px; height: auto; }
+.topics { display: flex; flex-direction: column; gap: 10px; }
+fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 0; padding: 6px 12px 8px; min-width: 0; }
+legend { color: var(--gold); font-weight: 700; padding: 0 4px; font-size: 14px; }
+.topic { display: flex; gap: 10px; align-items: center; padding: 3px 0; cursor: pointer; }
+.topic input, .point input { width: 18px; height: 18px; accent-color: var(--gold); flex: none; }
+.stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.stat-row div { background: #1c1729; border-radius: 10px; padding: 8px; text-align: center; }
+.stat-row b { display: block; font: 400 24px var(--f-display); font-variant-numeric: tabular-nums; }
+.stat-row small { color: var(--muted); }
+.ts { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(60px, 1fr) auto; gap: 10px; align-items: center; font-size: 14px; }
+.ts small { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.bar { height: 10px; background: #1c1729; border-radius: 5px; overflow: hidden; }
+.bar span { display: block; height: 100%; background: var(--go); }
+.bar.mid span { background: var(--gold); } .bar.bad span { background: var(--hot); }
+.big-place { font: 400 44px var(--f-display) !important; color: var(--gold); }
+.standings { margin: 0; padding-left: 26px; columns: 2; }
+.standings .you { color: var(--gold); font-weight: 700; }
+.help ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+kbd, .kbd { font: 400 12px var(--f-display); border: 1px solid var(--muted); border-radius: 4px; padding: 1px 5px; }
+
+/* HUD */
+#hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+.hud-tl, .hud-tr { position: absolute; top: calc(10px + env(safe-area-inset-top, 0px)); display: flex; gap: 10px; align-items: flex-start; }
+.hud-tl { left: 16px; } .hud-tr { right: 16px; flex-direction: column; align-items: flex-end; }
+.place { font: 400 56px/0.9 var(--f-display); color: #fff; text-shadow: 3px 3px 0 #000, 0 0 18px rgba(255, 79, 109, 0.6); }
+.place small { font-size: 24px; color: var(--muted); }
+.hud-box { background: rgba(10, 8, 18, 0.65); border-radius: 10px; padding: 6px 12px; font: 400 16px var(--f-display); font-variant-numeric: tabular-nums; }
+.item-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.item-slot { width: 64px; height: 64px; border-radius: 14px; border: 3px solid var(--gold); background: rgba(10, 8, 18, 0.7); display: grid; place-items: center; font-size: 34px; }
+.item-slot.empty { border-style: dashed; border-color: var(--muted); }
+#h-item-name { font: 400 12px var(--f-display); text-transform: uppercase; color: var(--muted); }
+.track-bar { position: absolute; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: min(420px, 60vw); height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.25); }
+.track-bar i { position: absolute; top: -3px; width: 14px; height: 14px; border-radius: 50%; transform: translateX(-50%); border: 2px solid #000; }
+.track-bar i.me { background: #fff; width: 18px; height: 18px; top: -5px; z-index: 2; }
+#p-pause { position: absolute; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); pointer-events: auto; }
+#count { position: fixed; inset: 0; display: grid; place-items: center; font: 400 120px var(--f-display); color: var(--gold); text-shadow: 6px 6px 0 #000; pointer-events: none; z-index: 6; }
+#event { position: fixed; top: 22%; left: 50%; transform: translateX(-50%); background: rgba(10, 8, 18, 0.8); border: 2px solid var(--gold); color: #fff; padding: 8px 18px; border-radius: 999px; font: 400 18px var(--f-display); z-index: 7; pointer-events: none; white-space: nowrap; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis; }
+#event.pop { animation: pop 0.3s ease-out; }
+@keyframes pop { from { transform: translate(-50%, -10px) scale(0.9); opacity: 0; } }
+.pad { display: none; position: fixed; left: 0; right: 0; bottom: calc(40px + env(safe-area-inset-bottom, 0px)); justify-content: space-between; padding: 0 16px; z-index: 6; pointer-events: none; }
+.pad > div { display: flex; gap: 10px; pointer-events: auto; }
+.pad button { width: 66px; height: 66px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.5); background: rgba(20, 17, 28, 0.55); color: #fff; font: 400 22px var(--f-display); touch-action: none; user-select: none; -webkit-user-select: none; }
+.pad .pad-item { background: rgba(255, 207, 63, 0.7); color: #1a1426; }
+@media (pointer: coarse) { .pad { display: flex; } #p-pause { bottom: auto; top: calc(110px + env(safe-area-inset-top, 0px)); } }
+
+/* question card */
+#qmodal { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(8, 6, 14, 0.55); }
+.qcard { width: min(760px, 100%); max-height: 100%; display: flex; flex-direction: column; background: #fffaf2; color: #231d33; border-radius: 14px; border: 3px solid var(--gold); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6); overflow: hidden; }
+.q-top { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #231d33; color: #fff; }
+.q-meta { display: flex; flex-wrap: wrap; gap: 6px; }
+.q-reason { flex: 1; text-align: right; font: 400 15px var(--f-display); color: var(--gold); }
+.x { width: 34px; height: 34px; border-radius: 8px; border: 2px solid #5a4f74; background: #2f2645; color: #fff; cursor: pointer; flex: none; font-weight: 700; }
+.chip { display: inline-block; border-radius: 999px; padding: 1px 9px; font-size: 13px; font-weight: 700; background: #3a3150; }
+.chip-econ { background: var(--econ); } .chip-acc { background: var(--acc); } .chip-eng { background: var(--eng); }
+.q-scroll { padding: 14px 18px; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+.q-graph { display: flex; justify-content: center; }
+.econ-graph { width: 100%; max-width: 420px; height: auto; border: 2px solid #231d33; border-radius: 8px; }
+.q-stem { font-size: 17px; overflow-x: auto; }
+.q-stem p { margin: 0 0 6px; }
+.qt { border-collapse: collapse; margin: 8px 0; font-size: 15px; font-variant-numeric: tabular-nums; }
+.qt th, .qt td { border: 1.5px solid #231d33; padding: 3px 10px; text-align: right; }
+.qt th:first-child, .qt td:first-child { text-align: left; }
+.qt th { background: #efe6d3; }
+.marks { font-weight: 700; color: #6a5f80; }
+.extract { margin: 6px 0; border: 2px solid #231d33; border-radius: 8px; padding: 10px 14px; background: #fff; font-size: 15.5px; }
+.extract figcaption { font-weight: 700; color: #6a5f80; font-size: 13px; }
+.extract .small { font-size: 12.5px; color: #6a5f80; }
+.q-body { display: flex; flex-direction: column; gap: 8px; }
+.opt { display: flex; gap: 10px; align-items: flex-start; text-align: left; border: 2px solid #d9cfbd; background: #fff; border-radius: 10px; padding: 9px 12px; cursor: pointer; color: #231d33; }
+.opt.focus { border-color: #231d33; background: #fff6d6; }
+.opt.right { background: #d9f5e3; border-color: var(--go); }
+.opt.wrong { background: #fde0e3; border-color: var(--hot); }
+.opt-key { font: 400 14px var(--f-display); background: #231d33; color: #fff; border-radius: 6px; padding: 2px 7px; flex: none; }
+.num-row { display: flex; gap: 8px; }
+.num-row input, #draft { border: 2px solid #231d33; border-radius: 8px; padding: 8px 10px; background: #fff; color: #231d33; width: 100%; min-width: 0; }
+.num-row input { max-width: 260px; font-size: 18px; }
+.qcard .btn { background: #231d33; color: #fff; border-color: #231d33; }
+.qcard .btn-go { background: var(--hot); border-color: var(--hot); }
+.points { display: flex; flex-direction: column; gap: 6px; }
+.point { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border: 1.5px solid #e6dcc8; border-radius: 8px; background: #fff; cursor: pointer; }
+.q-feedback { border-radius: 10px; padding: 10px 12px; }
+.q-feedback.ok { background: #d9f5e3; } .q-feedback.no { background: #fde0e3; }
+.fb-t { font: 400 18px var(--f-display); margin: 0 0 4px; }
+.q-foot { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid #e6dcc8; }
+.hint { color: #6a5f80; font-size: 13px; }
+@media (max-width: 560px) { .place { font-size: 40px; } .stat-row { grid-template-columns: repeat(2, 1fr); } .standings { columns: 1; } .screen { padding: 16px; } }
+@media (prefers-reduced-motion: reduce) { #event.pop { animation: none; } }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="road" aria-label="Race track view"></canvas></div>
+
+<div id="hud" hidden>
+  <div class="hud-tl"><div class="place" id="h-place">6<small>/6</small></div><div class="hud-box"><div id="h-lap">Lap 1/3</div><div id="h-time">0:00.0</div><div id="h-speed">0 km/h</div></div></div>
+  <div class="hud-tr"><div class="item-wrap"><div class="item-slot empty" id="h-item"></div><span id="h-item-name">Hit a ? box</span></div></div>
+  <div class="track-bar" id="h-track"></div>
+  <button class="btn" id="p-pause" type="button">Pause <kbd>Esc</kbd></button>
+</div>
+<div id="count" hidden>3</div>
+<div id="event" role="status" hidden></div>
+<div class="pad" aria-hidden="true">
+  <div><button data-pad="left" type="button">◀</button><button data-pad="right" type="button">▶</button></div>
+  <div><button class="pad-item" data-pad="item" type="button">★</button><button data-pad="down" type="button">■</button><button data-pad="up" type="button">▲</button></div>
+</div>
+
+<div id="menus">
+  <section class="screen" id="scr-title">
+    <div class="flag"></div>
+    <div><div class="logo">Revision<br>Rally</div><p class="logo-sub">Race your rivals. Every ? box is an AS Level question.</p></div>
+    <div class="menu">
+      <button class="btn btn-go btn-big" id="b-race" type="button">Race</button>
+      <button class="btn btn-big" id="b-garage" type="button">Garage</button>
+      <button class="btn btn-big" id="b-topics" type="button">Topics</button>
+      <button class="btn" id="b-stats" type="button">Stats</button>
+      <button class="btn" id="b-help" type="button">How to play</button>
+    </div>
+    <div class="head"><span id="study-line"></span><span class="wallet"></span></div>
+  </section>
+
+  <section class="screen" id="scr-select" hidden>
+    <div class="head"><h2>Choose a track</h2><span class="wallet"></span></div>
+    <div class="row" id="cc-row"></div>
+    <p class="muted">Finish in the top 3 to unlock the next track. Podium every track at one class to unlock the next, faster class.</p>
+    <div class="track-grid" id="track-grid"></div>
+    <div class="row"><button class="btn" data-back type="button">Back</button></div>
+  </section>
+
+  <section class="screen" id="scr-garage" hidden>
+    <div class="head"><h2>Garage</h2><span class="wallet"></span></div>
+    <div id="kart-preview"></div>
+    <div class="row" id="color-row"></div>
+    <div class="up-grid" id="up-grid"></div>
+    <p class="muted">Earn coins by answering correctly (5 each, more on a streak) and by finishing high.</p>
+    <div class="row"><button class="btn" data-back type="button">Back</button></div>
+  </section>
+
+  <section class="screen" id="scr-topics" hidden>
+    <div class="head"><h2>What to revise</h2></div>
+    <div id="topics-body"></div>
+    <div class="row"><button class="btn btn-go" data-back type="button">Done</button></div>
+  </section>
+
+  <section class="screen" id="scr-stats" hidden>
+    <div class="head"><h2>Stats</h2></div>
+    <div id="stats-body"></div>
+    <div class="row"><button class="btn" data-back type="button">Back</button></div>
+  </section>
+
+  <section class="screen help" id="scr-help" hidden>
+    <div class="head"><h2>How to play</h2></div>
+    <ul>
+      <li><b>Drive</b>: ▲/W accelerate, ◀ ▶ or A/D steer, ▼/S brake. On a phone, use the on-screen buttons (the kart accelerates by itself).</li>
+      <li><b>? boxes</b>: drive through one and the race pauses for a question. <b>Right</b> earns an item. <b>Wrong</b> spins you out. <b>✕ or Esc</b> skips with no penalty.</li>
+      <li><b>Items</b> (Space or ★): 🔥 boost, 🛡️ shield (blocks your next spin-out), 🚀 rocket (slows the kart ahead). Rockets are more likely when you are behind.</li>
+      <li>Staying on the road matters: grass slows you and scenery stops you.</li>
+      <li><b>Topics</b>: choose Economics, Accounting or English Language, Paper 1 or 2, and exact topics. Questions you get wrong come back more often.</li>
+      <li><b>Garage</b>: spend coins on engine, turbo, tyres and nitro upgrades, and repaint your kart.</li>
+    </ul>
+    <label class="topic"><input type="checkbox" id="auto-gas-help" disabled><span class="muted">Auto-accelerate can be switched on or off from the pause menu.</span></label>
+    <div class="row"><button class="btn btn-go" data-back type="button">Let's race</button></div>
+  </section>
+
+  <section class="screen" id="scr-results" hidden>
+    <div class="flag"></div>
+    <div class="head"><h2>Results</h2><span class="wallet"></span></div>
+    <div id="results-body"></div>
+    <div class="row"><button class="btn btn-go" id="res-again" type="button">Race again</button><button class="btn" id="res-menu" type="button">Menu</button></div>
+  </section>
+
+  <section class="screen" id="scr-pause" hidden>
+    <h2>Paused</h2>
+    <label class="topic"><input type="checkbox" id="auto-gas"><span>Auto-accelerate</span></label>
+    <div class="row"><button class="btn btn-go" id="p-resume" type="button">Resume</button><button class="btn" id="p-quit" type="button">Quit race</button></div>
+  </section>
+</div>
+
+<div id="qmodal" hidden>
+  <section class="qcard" role="dialog" aria-modal="true" aria-labelledby="q-stem">
+    <div class="q-top"><div class="q-meta" id="q-meta"></div><span class="q-reason" id="q-reason"></span><button class="x" id="q-close" type="button" aria-label="Skip question" title="Skip (Esc): no penalty">✕</button></div>
+    <div class="q-scroll">
+      <div class="q-graph" id="q-graph" hidden></div>
+      <div class="q-stem" id="q-stem"></div>
+      <div class="q-body" id="q-body"></div>
+      <div class="q-feedback" id="q-feedback" hidden></div>
+    </div>
+    <div class="q-foot" id="q-foot"></div>
+  </section>
+</div>
+
+<script src="../study-town/js/bank-core.js"></script>
+<script src="../study-town/js/bank-econ.js"></script>
+<script src="../study-town/js/bank-econ-2.js"></script>
+<script src="../study-town/js/bank-econ-3.js"></script>
+<script src="../study-town/js/bank-econ-p2.js"></script>
+<script src="../study-town/js/bank-acc.js"></script>
+<script src="../study-town/js/bank-acc-2.js"></script>
+<script src="../study-town/js/bank-acc-p2.js"></script>
+<script src="../study-town/js/bank-eng.js"></script>
+<script src="../study-town/js/bank-eng-2.js"></script>
+<script src="../study-town/js/graphs.js"></script>
+<script src="js/sprites.js"></script>
+<script src="js/track.js"></script>
+<script src="js/race.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>

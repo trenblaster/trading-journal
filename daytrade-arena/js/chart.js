@@ -413,7 +413,12 @@
         ctx.setLineDash([]);
         if (label && x - lastLabelX > 90 && x > 4 && x < L.plotW - 40) {
           ctx.fillStyle = liveEdge ? th.accent : th.text3;
-          ctx.fillText(label, x + 4, L.mainH - (liveEdge ? 30 : 18));
+          // Near the right edge the label goes on the left of its line so the price axis doesn't cut it.
+          const tw = ctx.measureText(label).width;
+          const right = x + 4 + tw > L.plotW - 4;
+          ctx.textAlign = right ? 'right' : 'left';
+          ctx.fillText(label, right ? x - 4 : x + 4, L.mainH - (liveEdge ? 30 : 18) - (liveEdge ? this.bottomInset || 0 : 0));
+          ctx.textAlign = 'left';
           lastLabelX = x;
         }
       }
@@ -1255,19 +1260,27 @@
           ctx.fillRect(L.plotW + 1, d.y - 1, 5, 3);
         }
       }
-      // VWAP tag
-      if (this.show.vwap && this.cache.calc) {
-        const v = this.cache.calc.vwap.v[this.cache.bars.length - 1];
-        if (!isNaN(v)) this.axisTag(ctx, L, this.yOf(v), fmtPrice(v, s.tick), th.s4, '#111');
-      }
-      // Position avg tag
-      const pos = this.replayT === null ? this.env.position(s.sym) : null;
-      if (pos && pos.qty) this.axisTag(ctx, L, this.yOf(pos.avg), fmtPrice(pos.avg, s.tick), th.text2, '#111');
-      // Last price tag with candle countdown.
+      // Last price tag (with the candle countdown under it) wins its spot; VWAP and position tags step aside.
       const last = this.replayT === null ? (this.animLast !== null ? this.animLast : s.last * s.tick) : bars[bars.length - 1].c;
       const lb = bars[bars.length - 1];
       const col = last >= lb.o ? th.up : th.down;
       const y = clamp(this.yOf(last), 10, L.mainH - 10);
+      const taken = [[y - 9, y + (this.replayT === null ? 25 : 9)]];
+      const place = (yy) => {
+        for (let k = 0; k < 6; k++) {
+          const hit = taken.find(([a, b]) => yy + 9 > a && yy - 9 < b);
+          if (!hit) break;
+          yy = yy < (hit[0] + hit[1]) / 2 ? hit[0] - 10 : hit[1] + 10;
+        }
+        taken.push([yy - 9, yy + 9]);
+        return yy;
+      };
+      const pos = this.replayT === null ? this.env.position(s.sym) : null;
+      if (pos && pos.qty) this.axisTag(ctx, L, place(this.yOf(pos.avg)), fmtPrice(pos.avg, s.tick), th.text2, '#111');
+      if (this.show.vwap && this.cache.calc) {
+        const v = this.cache.calc.vwap.v[this.cache.bars.length - 1];
+        if (!isNaN(v)) this.axisTag(ctx, L, place(this.yOf(v)), fmtPrice(v, s.tick), th.s4, '#111');
+      }
       this.axisTag(ctx, L, y, fmtPrice(this.replayT === null ? s.last * s.tick : last, s.tick), col, '#fff', true);
       if (this.replayT === null) {
         const now = this.env.now();

@@ -340,12 +340,18 @@
     if (!canvas.isConnected) return;
     const { ctx, w, h } = fitCanvas(canvas);
     ctx.clearRect(0, 0, w, h);
-    if (!s || !s.bars.length) return;
-    const n = s.bars.length;
+    if (!s) return;
+    // Today so far: the overnight or premarket history, then the live candles.
+    const src = [];
+    const from = s.meta && DTA.levels ? DTA.levels.windows(s.meta).on[0] : -Infinity;
+    for (const b of s.histBars || []) if (b[0] >= from) src.push(b[4]);
+    for (const b of s.bars) if (b[4] > 0) src.push(b[3]);
+    const n = src.length;
+    if (!n) return;
     const pts = Math.min(80, n);
     const step = n / pts;
     const vals = [];
-    for (let k = 0; k < pts; k++) vals.push(s.bars[Math.min(n - 1, Math.floor((k + 1) * step) - 1)][3]);
+    for (let k = 0; k < pts; k++) vals.push(src[Math.min(n - 1, Math.floor((k + 1) * step) - 1)]);
     vals.push(s.last);
     let lo = Math.min(...vals, s.prev), hi = Math.max(...vals, s.prev);
     if (hi - lo < 2) { hi += 1; lo -= 1; }
@@ -566,6 +572,7 @@
         ctx.fillText(label, L - 10, cy);
         ctx.font = '16px ' + EMOJI;
         ctx.fillText(p.avatar, L - 10 - nw - 8, cy);
+        ctx.font = v.id === this.env.me ? FONT_B : FONT;
         ctx.fillStyle = th.text2; ctx.textAlign = v.r >= 0 ? 'left' : 'right';
         ctx.fillText(fmtPct(v.r, 2), v.r >= 0 ? x1 + 6 : x1 - 6, cy);
         ctx.textBaseline = 'alphabetic';

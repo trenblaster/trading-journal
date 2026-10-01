@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const DTA = window.DTA;
-  const { $, el, store, AVATARS, MODES, DUEL_TYPES, SCENARIOS, SYMBOL_SETS, SESSIONS, MAX_PLAYERS, fmtCompactMoney } = DTA;
+  const { $, el, store, AVATARS, MODES, DUEL_TYPES, SCENARIOS, MARKETS, SESSIONS, SYMBOLS, MAX_PLAYERS, fmtCompactMoney } = DTA;
   const ui = DTA.ui;
 
   // ---------- home ----------
@@ -36,6 +36,17 @@
       const subs = m.id === 'duel' ? el('div.subs', Object.values(DUEL_TYPES).map((d) => el('span.pill', d.icon + ' ' + d.name))) : m.id === 'scenario' ? el('div.subs', SCENARIOS.slice(0, 6).map((s) => el('span.pill', s.icon + ' ' + s.name))) : null;
       tiles.appendChild(el('div.mode-tile', [el('div.mt-icon', m.icon), el('h3', m.name), el('p', m.desc), subs]));
     }
+    // Quick play: one click into a practice match in a market.
+    const qp = $('#quickPlay');
+    if (qp) {
+      qp.innerHTML = '';
+      for (const m of MARKETS) {
+        const b = el('button.qp-tile', { type: 'button', title: m.desc }, [el('span.qp-i', m.icon), el('b', m.name), el('small', symLabel(m.pick))]);
+        // Quick play uses each market's natural window (oil & gold start before their 8:20 and 9:00 opens).
+        b.addEventListener('click', () => DTA.app.hostGame(true, { market: m.id, syms: m.pick.slice(), mode: 'race', minutes: 8, bots: 3, session: m.session || 'full' }, true));
+        qp.appendChild(b);
+      }
+    }
     ui.renderCareer();
     const code = $('#joinCode');
     code.addEventListener('input', () => { code.value = code.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5); });
@@ -49,6 +60,7 @@
     $('#btnSolo').onclick = () => DTA.app.hostGame(true);
     $('#btnJoin').onclick = () => DTA.app.joinGame(code.value);
   }
+  function symLabel(list) { return list.map((k) => (k[0] === '@' ? 'Runner ' + k.slice(1) : k)).join(' · '); }
   function homeStatus(text, bad) {
     const s = $('#homeStatus');
     s.textContent = text || '';
@@ -156,6 +168,15 @@
     void fmt;
     return box;
   }
+  // Quick-duel blurbs that follow the room's settings.
+  function duelDesc(st) {
+    const n = { 3: 'three', 5: 'five', 7: 'seven' };
+    const secs = (v) => (v >= 60 && v % 60 === 0 ? v / 60 + '-minute' : v + '-second');
+    if (st.duel === 'scalp') return 'Best of ' + (n[st.scalpRounds] || st.scalpRounds) + ' ' + secs(st.scalpSec) + ' rounds, each on a fresh chart, with a capped position size. Most round wins takes it.';
+    if (st.duel === 'target') { const p = Math.round(st.targetPct * 1000) / 10; return 'First trader to make +' + p + '% wins instantly. Lose ' + p + '% and you\'re out.'; }
+    if (st.duel === 'predict') return st.predictRounds + ' rounds. The chart freezes: call up or down for the next ' + st.predictCandles + ' candles and bet 1 to 3 chips. Streaks score bonus points.';
+    return DUEL_TYPES[st.duel].desc;
+  }
   function field(label, control, full) { return el('div.field' + (full ? '.full' : ''), [el('span', label), control]); }
   function select(key, options, st, enabled) {
     const c = DTA.app.client;
@@ -169,6 +190,59 @@
     const i = el('input', { type: 'checkbox', checked: !!st[key], disabled: !enabled });
     i.addEventListener('change', () => c.updateSettings({ [key]: i.checked }));
     return el('label.toggle', [i, label]);
+  }
+
+  // Market picker: a card per market; the chosen one shows its symbols as toggles.
+  function marketStep(st, E) {
+    const c = DTA.app.client;
+    const box = el('div.mkt-grid');
+    const cur = MARKETS.find((m) => m.id === st.market) || MARKETS[0];
+    const chosen = Array.isArray(st.syms) && st.syms.length ? st.syms : cur.pick;
+    for (const m of MARKETS) {
+      const on = m.id === cur.id;
+      const card = el('div.mkt-card' + (on ? '.active' : ''), { role: 'button', tabindex: E ? 0 : -1, 'aria-pressed': String(on), 'aria-disabled': String(!E), title: m.desc }, [
+        el('div.mkt-head', [el('span.mkt-i', m.icon), el('b', m.name)]),
+        el('p', m.desc)
+      ]);
+      if (on) {
+        const pick = el('div.mkt-pick');
+        pick.appendChild(el('span.muted.small', 'Symbols'));
+        const chips = el('div.mkt-syms');
+        for (const k of m.syms) {
+          const d = SYMBOLS[k];
+          const sel = chosen.includes(k);
+          const label = k[0] === '@' ? 'Runner ' + k.slice(1) : (st.micro && d && d.micro ? d.micro.sym : k);
+          const title = k[0] === '@' ? 'A small cap gapping up on news, generated for this match' : d ? d.name + ': ' + d.desc : k;
+          const chip = el('button.sym-chip' + (sel ? '.on' : ''), { type: 'button', disabled: !E, title, 'aria-pressed': String(sel) }, label);
+          chip.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (!E) return;
+            const next = sel ? chosen.filter((x) => x !== k) : m.syms.filter((x) => chosen.includes(x) || x === k);
+            if (next.length) c.updateSettings({ syms: next });
+          });
+          chips.appendChild(chip);
+        }
+        pick.appendChild(chips);
+        if (m.syms.some((k) => SYMBOLS[k] && SYMBOLS[k].kind === 'future')) {
+          const i = el('input', { type: 'checkbox', checked: !!st.micro, disabled: !E });
+          i.addEventListener('change', () => c.updateSettings({ micro: i.checked }));
+          pick.appendChild(el('label.toggle.micro', [i, 'Micro contracts (a tenth of the size)']));
+        }
+        box.pickRow = pick;
+      }
+      const pickIt = () => { if (E && !on) c.updateSettings({ market: m.id }); };
+      card.addEventListener('click', pickIt);
+      card.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickIt(); } });
+      box.appendChild(card);
+    }
+    const wrap = el('div.mkt-step', [box]);
+    if (box.pickRow) wrap.appendChild(box.pickRow);
+    return wrap;
+  }
+  function marketHasStocks(st) {
+    const m = MARKETS.find((x) => x.id === st.market) || MARKETS[0];
+    const list = Array.isArray(st.syms) && st.syms.length ? st.syms : m.pick;
+    return list.some((k) => k[0] === '@' || (SYMBOLS[k] && SYMBOLS[k].kind !== 'future'));
   }
 
   function renderSettings(st, isHost) {
@@ -189,26 +263,46 @@
     const cash = [[10000, '$10K'], [25000, '$25K'], [50000, '$50K'], [100000, '$100K'], [250000, '$250K'], [1000000, '$1M']];
     const lev = [[1, '1×'], [2, '2×'], [4, '4×'], [6, '6×'], [10, '10×']];
     const common = (opts) => {
-      if (opts.symbols) g.appendChild(field('Symbols', select('symbolSet', SYMBOL_SETS.map((s) => [s.id, s.name + ' (' + s.syms.join(', ') + ')']), st, E), true));
-      if (opts.session) g.appendChild(field('Market session', select('session', SESSIONS.map((s) => [s.id, s.name]), st, E)));
+      if (opts.session) {
+        const stocks = marketHasStocks(st);
+        const sessions = SESSIONS.filter((x) => !x.futuresOnly || !stocks);
+        g.appendChild(field('Market session', select('session', sessions.map((x) => [x.id, x.name]), st, E)));
+        const sess = SESSIONS.find((x) => x.id === st.session);
+        if (sess && sess.note) g.appendChild(el('p.hint', sess.note));
+      }
       g.appendChild(field('Starting cash', select('startCash', cash, st, E)));
-      g.appendChild(field('Leverage (buying power)', seg('leverage', lev, st, E)));
-      if (opts.events) g.appendChild(field('Market events', seg('events', [['off', 'Off'], ['calm', 'Calm'], ['normal', 'Normal'], ['chaos', 'Chaos']], st, E)));
-      if (opts.events) g.appendChild(field('Volatility', seg('volatility', [['calm', 'Calm'], ['normal', 'Normal'], ['wild', 'Wild']], st, E)));
-      g.appendChild(field("Rivals' trades", seg('rivals', [['live', 'Live'], ['delayed', '20s delay'], ['hidden', 'Hidden']], st, E)));
-      g.appendChild(field('Commissions', toggle('commissions', 'Charge commissions ($0.005/share, $1 minimum)', st, E)));
+      // Everything else sits behind "More settings" so the lobby stays readable.
+      const more = el('details.more-settings');
+      more.appendChild(el('summary', 'More settings: leverage, commissions, news, volatility, rivals, seed'));
+      const mg = el('div.set-grid');
+      mg.appendChild(field('Leverage (stocks) · futures margin', seg('leverage', lev, st, E)));
+      mg.appendChild(el('p.hint', '4× is the standard day-trade margin for futures (ES $2,500 a contract). Lower leverage asks for more margin, higher for less.'));
+      if (opts.events) mg.appendChild(field('News and data', seg('events', [['off', 'Off'], ['calm', 'Calm'], ['normal', 'Normal'], ['chaos', 'Chaos']], st, E)));
+      if (opts.events) mg.appendChild(field('Volatility', seg('volatility', [['calm', 'Calm'], ['normal', 'Normal'], ['wild', 'Wild']], st, E)));
+      mg.appendChild(field("Rivals' trades", seg('rivals', [['live', 'Live'], ['delayed', '20s delay'], ['hidden', 'Hidden']], st, E)));
+      mg.appendChild(field('Commissions', toggle('commissions', 'Charge commissions (stocks $0.005 a share, futures $2.25 a contract)', st, E)));
       const seed = el('input', { value: st.seed || '', placeholder: 'Random', disabled: !E, maxlength: 24 });
       seed.addEventListener('change', () => c.updateSettings({ seed: seed.value }));
-      g.appendChild(field('Seed (same seed = same market)', seed));
+      mg.appendChild(field('Seed (same seed = same market)', seed));
+      more.appendChild(mg);
+      if (DTA.ui.lobbyMoreOpen) more.open = true;
+      more.addEventListener('toggle', () => { DTA.ui.lobbyMoreOpen = more.open; });
+      g.appendChild(el('div.full', more));
     };
+    const needsMarket = st.mode !== 'scenario';
+    if (needsMarket) {
+      body.insertBefore(el('div.step-head', [el('span.step-n', '1'), el('b', 'Market'), el('span.muted.small', st.mode === 'duel' && st.duel !== 'target' ? 'Each round picks one of these' : 'What you trade')]), tabs);
+      body.insertBefore(marketStep(st, E), tabs);
+      body.insertBefore(el('div.step-head', [el('span.step-n', '2'), el('b', 'Mode')]), tabs);
+    }
     if (st.mode === 'race') {
       g.appendChild(field('Match length', seg('minutes', [[3, '3 min'], [5, '5'], [8, '8'], [10, '10'], [15, '15'], [20, '20']], st, E), true));
-      common({ symbols: true, session: true, events: true });
+      common({ session: true, events: true });
     } else if (st.mode === 'elim') {
       g.appendChild(field('Round length', seg('elimRoundSec', [[30, '30s'], [45, '45s'], [60, '60s'], [90, '90s'], [120, '2m'], [180, '3m']], st, E)));
       g.appendChild(field('Blown up below', seg('bustPct', [[0.3, '30%'], [0.5, '50%'], [0.7, '70%']], st, E)));
       g.appendChild(el('p.hint.full', 'Rounds: one fewer than the number of traders (at most 7). At each bell every position closes. Anyone who made no trades that round is out first, otherwise the lowest account goes.'));
-      common({ symbols: true, session: true, events: true });
+      common({ session: true, events: true });
     } else if (st.mode === 'scenario') {
       const grid = el('div.scen-grid');
       const opts = [{ id: 'random', icon: '🎲', name: 'Mystery', brief: 'A random scenario. You find out what it was afterwards.' }].concat(SCENARIOS);
@@ -230,7 +324,7 @@
         dt.appendChild(b);
       }
       dt.style.gridTemplateColumns = 'repeat(3, 1fr)';
-      g.appendChild(el('div.full', [dt, el('p.mode-desc', DUEL_TYPES[st.duel].desc)]));
+      g.appendChild(el('div.full', [dt, el('p.mode-desc', duelDesc(st))]));
       if (st.duel === 'predict') {
         g.appendChild(field('Rounds', seg('predictRounds', [[5, '5'], [8, '8'], [10, '10'], [15, '15']], st, E)));
         g.appendChild(field('Candles to call', seg('predictCandles', [[3, '3'], [5, '5'], [8, '8']], st, E)));
@@ -241,11 +335,11 @@
       } else if (st.duel === 'target') {
         g.appendChild(field('Profit target (and loss limit)', seg('targetPct', [[0.01, '±1%'], [0.02, '±2%'], [0.03, '±3%'], [0.05, '±5%'], [0.1, '±10%']], st, E)));
         g.appendChild(field('Time limit', seg('minutes', [[3, '3 min'], [5, '5'], [8, '8'], [10, '10']], st, E)));
-        common({ symbols: true, session: true, events: true });
+        common({ session: true, events: true });
       } else {
         g.appendChild(field('Rounds (best of)', seg('scalpRounds', [[3, '3'], [5, '5'], [7, '7']], st, E)));
         g.appendChild(field('Round length', seg('scalpSec', [[30, '30s'], [45, '45s'], [60, '60s'], [90, '90s'], [120, '2m']], st, E)));
-        g.appendChild(field('Position limit', seg('scalpMaxShares', [[1000, '1K'], [2500, '2.5K'], [5000, '5K'], [10000, '10K'], [25000, '25K']], st, E)));
+        g.appendChild(field('Position limit (shares; futures: one contract per 500)', seg('scalpMaxShares', [[1000, '1K'], [2500, '2.5K'], [5000, '5K'], [10000, '10K'], [25000, '25K']], st, E)));
         g.appendChild(el('p.hint.full', 'Every round is a fresh chart, and every account resets to ' + fmtCompactMoney(st.startCash) + '. Highest round P&L takes the round.'));
         common({ events: true });
       }

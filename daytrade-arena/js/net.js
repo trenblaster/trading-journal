@@ -8,7 +8,7 @@
   const DTA = window.DTA;
   const { Emitter, store } = DTA;
 
-  const PREFIX = 'dtarena-v3-';
+  const PREFIX = 'dtarena-v4-';
   const CHUNK = 5000;              // characters per data-channel message (stays under 16 KB as UTF-8)
   const SILENCE_MS = 12000;        // a connection that says nothing for this long is treated as gone
 

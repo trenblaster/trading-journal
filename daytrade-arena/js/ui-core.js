@@ -84,6 +84,21 @@
     modal('How to play', `
       <h3>The idea</h3>
       <p>Everyone in the room trades the same simulated market at the same time. Prices, the order book and the tape are shared, and your orders really move them: buy a thin small cap hard and you push it up for everyone. The host's browser runs the market, so play fair and have fun.</p>
+      <h3>Markets</h3>
+      <ul>
+        <li><b>Index futures (ES, NQ, RTY).</b> Contracts, not shares: ES is $50 a point ($12.50 a tick), NQ $20 a point, RTY $50. Deep books; price respects the prior day's high and low, the overnight range, VWAP and round numbers, and data at 8:30 and 10:00 moves everything.</li>
+        <li><b>Crude and gold (CL, GC).</b> CL is $1,000 a point ($10 a tick) and runs stops through obvious levels; EIA inventories hit at 10:30 on Wednesdays. GC is $100 a point and trends on rates.</li>
+        <li><b>Small-cap runners.</b> A fresh gapper every match with premarket news. The premarket high and VWAP decide everything, halts come fast, and once a stock is down 10% on the day the short sale restriction only lets you short with a limit above the bid.</li>
+        <li><b>Large caps.</b> Liquid stocks that follow the market, with clean trends and VWAP pullbacks.</li>
+        <li>Turn on <b>micro contracts</b> in the lobby for futures a tenth of the size.</li>
+      </ul>
+      <h3>Reading the chart</h3>
+      <ul>
+        <li>The chart starts with yesterday's session and the overnight (futures) or premarket (stocks), so you can see where price has been. Shaded areas are outside the regular session. Drag the window in the strip under the time axis to look back, press <b>D</b> for today, <b>A</b> for everything, <b>End</b> for live.</li>
+        <li>Coloured lines are <b>key levels</b>: prior day high, low and close (PDH, PDL, PDC), the prior day's value area (pPOC, pVAH, pVAL), overnight or premarket high and low (ONH, ONL, PMH, PML), the opening range (ORH, ORL), the first hour (IBH, IBL), high and low of day, VWAP and round numbers. A ◆ marks a <b>confluence</b>: several levels close together, where reactions are stronger.</li>
+        <li>At a level, price tends to do one of three things: reject it (often after poking through to run the stops), break it and retest it from the other side, or break it and fail back through, trapping the breakout.</li>
+        <li>The Levels tab next to Time &amp; sales lists them with their distance from price, and the Calendar tab shows today's data releases.</li>
+      </ul>
       <h3>Modes</h3><ul>${modes}</ul>
       <h3>Quick duels</h3><ul>${duels}</ul>
       <h3>Trading</h3>
@@ -92,7 +107,7 @@
         <li>Click a price in the ladder: a bid-side row places a buy limit, an ask-side row a sell limit, and right-click places a stop. Click your own order chip to cancel it.</li>
         <li>Your working orders appear as lines on the chart. Drag them to move, click × to cancel. Right-click the chart for orders and alerts at that price.</li>
         <li>You can short. Hard-to-borrow stocks (MEME, BIOT, QBIT) charge a locate fee per share, have a per-player cap, and sometimes have no shares to borrow at all.</li>
-        <li>Buying power is your account times the leverage the host chose. If your account drops below maintenance margin (25%, or 35% for hard-to-borrow stocks), you get margin called and your positions are sold at market.</li>
+        <li>For stocks, buying power is your account times the leverage the host chose. Futures use a day-trade margin per contract (ES $2,500 at the standard 4× setting). If your account drops below maintenance margin, you get margin called and your positions are sold at market.</li>
         <li>Small caps halt when they move too far too fast (limit up / limit down). Market orders are refused during a halt, but limit orders wait for the reopening auction.</li>
         <li>Positions close automatically at the closing bell (and at every round bell in Knockout and Scalp Duel).</li>
       </ul>

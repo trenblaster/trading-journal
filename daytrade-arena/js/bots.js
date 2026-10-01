@@ -4,7 +4,7 @@
 (function () {
   'use strict';
   const DTA = (typeof window !== 'undefined' ? window : globalThis).DTA;
-  const { ind, BOT_QUIPS, BAR_SEC, clamp } = DTA;
+  const { ind, BOT_QUIPS, BAR_SEC } = DTA;
 
   const LEVELS = {
     easy: { react: [1800, 3600], risk: 0.004, skip: 0.45, flip: 0.35 },
@@ -57,19 +57,38 @@
       for (const o of this.e.orders.values()) if (o.pid === this.pid && o.sym === sym && o.status === 'working' && !o.reduceOnly) return o;
       return null;
     }
-    bpLeft() { const a = this.acct(); return this.e.buyingPower(a) - this.e.gross(a) - this.e.pendingIncrease(a); }
-    canShort(sim) { return !(sim.def.htb && sim.noLocate); }
+    canShort(sim) { return !(sim.def.htb && sim.noLocate) && !sim.ssr; }
+    fut(sim) { return sim.def.kind === 'future'; }
+    // How many shares or contracts fit in a fraction of the free margin.
+    room(sim, frac) {
+      const a = this.acct();
+      let q = this.e.capacity(a, sim.sym, sim.lastIdx * sim.tick) * frac;
+      const cap = this.e.maxQty(sim.sym);
+      if (cap) q = Math.min(q, cap * 0.9);
+      return this.roundQty(sim, q);
+    }
+    roundQty(sim, q) {
+      if (this.fut(sim)) return Math.max(0, Math.floor(q));
+      const px = sim.lastIdx * sim.tick;
+      return Math.max(0, px < 20 && q > 300 ? Math.floor(q / 100) * 100 : Math.floor(q / 10) * 10);
+    }
 
+    // Risk a fixed share of equity between entry and stop. Futures risk is per point times the multiplier.
     size(sim, stopDist, riskMult = 1) {
       const a = this.acct();
       const eq = this.e.equity(a);
       const px = sim.lastIdx * sim.tick;
-      let shares = (eq * this.L.risk * riskMult) / Math.max(stopDist, sim.tick * 3);
-      shares = Math.min(shares, (this.bpLeft() * 0.9) / px);
-      if (this.e.o.maxShares) shares = Math.min(shares, this.e.o.maxShares * 0.8);
-      if (sim.def.htb && sim.def.maxShort) shares = Math.min(shares, sim.def.maxShort * 0.8);
-      shares = px < 20 && shares > 300 ? Math.floor(shares / 100) * 100 : Math.floor(shares / 10) * 10;
-      return Math.max(0, shares);
+      const mult = sim.def.mult || 1;
+      const risk$ = eq * this.L.risk * riskMult;
+      const perUnit = Math.max(stopDist, sim.tick * 3) * mult;
+      let q = risk$ / perUnit;
+      q = Math.min(q, this.e.capacity(a, sim.sym, px) * 0.9);
+      const cap = this.e.maxQty(sim.sym);
+      if (cap) q = Math.min(q, cap * 0.8);
+      if (!this.fut(sim) && sim.def.htb && sim.def.maxShort) q = Math.min(q, sim.def.maxShort * 0.8);
+      // A single contract is fine if it risks no more than twice the budget.
+      if (this.fut(sim) && q < 1 && risk$ * 2 >= perUnit && this.e.capacity(a, sim.sym, px) >= 1) q = 1;
+      return this.roundQty(sim, q);
     }
 
     place(req) { return this.e.place(this.pid, req, true); }
@@ -216,7 +235,8 @@
       const list = this.candidates();
       if (!list.length) return;
       if (!this.focus || !this.m.syms[this.focus] || this.rng.float() < 0.01) {
-        const liquid = list.filter((s) => s.def.depth >= 1500) ;
+        // Scalpers want deep, steady books: futures and liquid stocks, not names that halt.
+        const liquid = list.filter((s) => (s.def.kind === 'future' || s.def.depth >= 1500) && !s.def.halts);
         this.focus = this.rng.pick(liquid.length ? liquid : list).sym;
       }
       const sim = this.m.syms[this.focus];
@@ -232,13 +252,14 @@
       const e9 = c.cl.length > 3 ? ind.ema(c.cl, 9)[c.i] : c.px;
       const tgt = Math.max(4 * sim.tick, 0.2 * c.atr), stp = Math.max(5 * sim.tick, 0.28 * c.atr);
       if (this.skip()) return;
+      const cap = sim.def.halts ? 1500 : Infinity;
       if (bs > 1.35 * as && c.px >= e9) {
         const px = book.b[0][0] * sim.tick;
-        const qty = this.size(sim, stp, 0.7);
+        const qty = Math.min(cap, this.size(sim, stp, 0.7));
         if (qty > 0) { const r = this.place({ sym: sim.sym, side: 1, type: 'LMT', qty, px, tp: px + tgt, sl: px - stp }); if (r.ok) this.e.orders.get(r.id).botPlaced = now; }
       } else if (as > 1.35 * bs && c.px <= e9 && this.canShort(sim)) {
         const px = book.a[0][0] * sim.tick;
-        const qty = this.size(sim, stp, 0.7);
+        const qty = Math.min(cap, this.size(sim, stp, 0.7));
         if (qty > 0) { const r = this.place({ sym: sim.sym, side: -1, type: 'LMT', qty, px, tp: px - tgt, sl: px + stp }); if (r.ok) this.e.orders.get(r.id).botPlaced = now; }
       }
     }
@@ -284,11 +305,10 @@
         const s = open[0];
         const sim = this.m.syms[s];
         const p = a.pos[s];
-        const upnl = p.qty * (sim.lastIdx * sim.tick - p.avg);
+        const upnl = p.qty * (sim.lastIdx * sim.tick - p.avg) * (sim.def.mult || 1);
         if (upnl > eq * 0.035) { this.e.flatten(this.pid, s); this.say('win'); }
-        else if (upnl < -eq * 0.05 && !this.mem.added && this.bpLeft() > eq) {
-          const px = sim.lastIdx * sim.tick;
-          const qty = Math.floor((this.bpLeft() * 0.5) / px / 10) * 10;
+        else if (upnl < -eq * 0.05 && !this.mem.added && this.e.freeMargin(a) > eq * 0.25) {
+          const qty = this.room(sim, 0.5);
           if (qty > 0 && !sim.halted) this.place({ sym: s, side: Math.sign(p.qty), type: 'MKT', qty });
           this.mem.added = true;
         }
@@ -303,11 +323,8 @@
       const sim = this.rng.weighted(list, list.map((s) => s.def.vol));
       let side = this.rng.chance(0.7) ? 1 : -1;
       if (side < 0 && !this.canShort(sim)) side = 1;
-      const px = sim.lastIdx * sim.tick;
-      let qty = (this.bpLeft() * this.rng.range(0.55, 0.85)) / px;
-      if (this.e.o.maxShares) qty = Math.min(qty, this.e.o.maxShares * 0.9);
-      if (side < 0 && sim.def.maxShort) qty = Math.min(qty, sim.def.maxShort * 0.9);
-      qty = Math.floor(qty / 10) * 10;
+      let qty = this.room(sim, this.rng.range(0.55, 0.85));
+      if (side < 0 && sim.def.maxShort && !this.fut(sim)) qty = Math.min(qty, Math.floor(sim.def.maxShort * 0.9 / 10) * 10);
       if (qty > 0) this.place({ sym: sim.sym, side, type: 'MKT', qty });
     }
 
@@ -353,13 +370,13 @@
         if (!pool.length) return;
         pool.sort((x, y) => y.lastIdx / y.prevCloseIdx - x.lastIdx / x.prevCloseIdx);
         const sim = pool[0];
-        const qty = Math.floor((this.bpLeft() * 0.55) / (sim.lastIdx * sim.tick) / 10) * 10;
+        const qty = this.room(sim, 0.55);
         if (qty > 0) { const r = this.place({ sym: sim.sym, side: 1, type: 'MKT', qty }); if (r.ok) this.mem.pick = sim.sym; }
         return;
       }
       const sim = this.m.syms[this.mem.pick];
       if (!this.mem.added && sim && !sim.halted && sim.lastIdx * sim.tick < sim.vwap() * 0.985) {
-        const qty = Math.floor((this.bpLeft() * 0.35) / (sim.lastIdx * sim.tick) / 10) * 10;
+        const qty = this.room(sim, 0.35);
         if (qty > 0) this.place({ sym: sim.sym, side: 1, type: 'MKT', qty });
         this.mem.added = true;
         if (a) this.ctx.say(this.pid, 'buying the dip 💎🙌');
@@ -399,6 +416,104 @@
       }
     }
 
+    // --- Level Lou: fades the first tests of strong key levels (PDH, ONH, VWAP, round numbers and their
+    // confluences) and joins breaks that retest the level from the other side.
+    levels() {
+      const t = this.m.t;
+      for (const sim of this.candidates()) {
+        const q = this.qty(sim.sym);
+        const c = this.ctxFor(sim, 30);
+        if (!c) continue;
+        const mem = this.mem[sim.sym] || (this.mem[sim.sym] = { used: {}, crossed: {} });
+        if (q !== 0) {
+          mem.held = (mem.held || 0) + 1;
+          mem.inTrade = true;
+          if (mem.held > 30) { this.e.flatten(this.pid, sim.sym); mem.held = 0; }
+          continue;
+        }
+        if (mem.inTrade) {
+          // Just got out: after a loss, sit out a while.
+          mem.inTrade = false;
+          const a = this.acct();
+          const lastFill = a.fills.filter((f) => f.sym === sim.sym).pop();
+          if (lastFill && lastFill.realized < 0) mem.nextAt = Math.max(mem.nextAt || 0, t + this.ctx.tfSec * 12);
+        }
+        mem.held = 0;
+        const w = this.workingEntry(sim.sym);
+        if (w) { if (t - w.created > this.ctx.tfSec * 6) this.e.cancel(this.pid, w.id); continue; }
+        if (this.working(sim.sym) || t < (mem.nextAt || 0)) continue;
+        // Only levels worth trading: strong ones, or several stacked together.
+        const zs = sim.zones(t).map((z) => ({ px: Math.exp(z.L), s: z.s, key: z.key, label: z.label, conf: z.label.indexOf('·') >= 0 })).filter((z) => z.s >= 0.55 || z.conf);
+        const px = c.px, atr = c.atr;
+        const prevC = c.bars[c.i - 1] ? c.bars[c.i - 1].c : c.last.o;
+        // Remember which levels price has just crossed, for break-and-retest.
+        for (const z of zs) if ((prevC - z.px) * (c.last.c - z.px) < 0) mem.crossed[z.key] = { dir: Math.sign(c.last.c - z.px), at: t, px: z.px };
+        // Don't stand in front of a train: three strong candles straight into the level usually break it.
+        const n3 = c.bars.slice(-3);
+        const push = n3.length === 3 && n3.every((b) => Math.abs(b.c - b.o) > 0.55 * atr) && (n3.every((b) => b.c > b.o) || n3.every((b) => b.c < b.o)) ? Math.sign(n3[2].c - n3[2].o) : 0;
+        let best = null;
+        for (const z of zs) {
+          const d = z.px - px;
+          if (Math.abs(d) > atr * 0.9 || (mem.used[z.key] || 0) >= 1) continue;
+          const cr = mem.crossed[z.key];
+          if (cr && t - cr.at < this.ctx.tfSec * 12 && Math.sign(px - z.px) === cr.dir && Math.abs(d) < atr * 0.5) {
+            const sc = z.s + 0.2;
+            if (!best || sc > best.sc) best = { z, side: cr.dir, kind: 'retest', sc };
+            continue;
+          }
+          const approaching = Math.sign(d) === Math.sign(c.last.c - c.last.o) || Math.abs(d) < atr * 0.25;
+          if (push && push === Math.sign(d)) continue;
+          if (approaching && Math.abs(d) > sim.tick) { const sc = z.s + (z.conf ? 0.15 : 0); if (!best || sc > best.sc) best = { z, side: -Math.sign(d), kind: 'fade', sc }; }
+        }
+        if (!best || this.skip()) continue;
+        const { z, side } = best;
+        if (side < 0 && !this.canShort(sim)) continue;
+        const tk = sim.tick;
+        const entry = best.kind === 'fade' ? z.px + side * tk : z.px + side * tk * 2;
+        const sl = z.px - side * Math.max(0.7 * atr, tk * 4);
+        const risk = Math.abs(entry - sl);
+        const nxt = zs.filter((y) => (y.px - entry) * side > risk * 1.2).sort((a, b) => Math.abs(a.px - entry) - Math.abs(b.px - entry))[0];
+        const tp = nxt ? nxt.px - side * tk * 2 : entry + side * risk * 2;
+        const qty = this.size(sim, risk, 1);
+        if (qty <= 0) continue;
+        const r = this.place({ sym: sim.sym, side, type: 'LMT', qty, px: entry, tp, sl });
+        if (r.ok) { mem.used[z.key] = (mem.used[z.key] || 0) + 1; mem.nextAt = t + this.ctx.tfSec * 5; if (this.rng.chance(0.25)) this.ctx.say(this.pid, (best.kind === 'fade' ? 'fading ' : 'retest of ') + z.label + ' on ' + sim.sym); }
+        return;
+      }
+    }
+
+    // --- ORB Olivia: once the opening range is set, a buy stop above it and a sell stop below, one trade
+    // per symbol, stop at the middle of the range, target twice the risk.
+    orb() {
+      const t = this.m.t;
+      for (const sim of this.candidates()) {
+        const dev = sim.dev;
+        const mem = this.mem[sim.sym] || (this.mem[sim.sym] = {});
+        const q = this.qty(sim.sym);
+        if (q !== 0) {
+          // One side triggered: drop the other entry (its bracket goes with it); the bracket manages the exit.
+          mem.done = true;
+          for (const o of [...this.e.orders.values()]) if (o.pid === this.pid && o.sym === sim.sym && o.status === 'working' && !o.reduceOnly && o.type === 'STP') this.e.cancel(this.pid, o.id);
+          continue;
+        }
+        if (mem.done || dev.orH === null) continue;
+        const w = DTA.levels.windows(sim.meta);
+        if (t < w.or[1] || t > w.rth[0] + 7200) {
+          if (t > w.rth[0] + 7200 && this.working(sim.sym)) this.e.cancelAll(this.pid, sim.sym);
+          continue;
+        }
+        if (this.working(sim.sym)) continue;
+        const tk = sim.tick;
+        const hi = dev.orH * tk, lo = dev.orL * tk, mid = (hi + lo) / 2;
+        const px = sim.lastIdx * tk;
+        if (px > hi || px < lo) { mem.done = true; continue; }
+        const risk = Math.max(hi - mid, tk * 4);
+        const qty = this.size(sim, risk, 0.9);
+        if (qty <= 0) continue;
+        this.place({ sym: sim.sym, side: 1, type: 'STP', qty, stop: hi + tk, tp: hi + tk + 2 * risk, sl: mid });
+        if (this.canShort(sim)) this.place({ sym: sim.sym, side: -1, type: 'STP', qty, stop: lo - tk, tp: lo - tk - 2 * risk, sl: mid });
+      }
+    }
     // Call-It mode: up or down for the next few candles, with 1–3 chips.
     predict(sim, tfSec) {
       const bars = recentBars(sim, tfSec, 40);

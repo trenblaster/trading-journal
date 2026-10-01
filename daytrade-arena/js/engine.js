@@ -3,8 +3,12 @@
 // Order types: MKT, LMT, STP (stop market), STPLMT (stop limit), TRAIL (trailing stop, market on trigger).
 // Any entry can carry a bracket: a take-profit limit and a stop-loss that become live as the entry fills,
 // only ever reduce the position, and cancel each other (OCO). Shorts need a locate on hard-to-borrow names
-// (a per-share fee, a per-player cap, and none at all during a squeeze). Buying power is equity × leverage;
-// when equity falls below maintenance margin the account is liquidated at market, largest position first.
+// (a per-share fee, a per-player cap, and none at all during a squeeze), and a stock under the short sale
+// restriction (down 10% on the day) can only be shorted with a limit order above the bid.
+// Margin: stocks use equity × leverage of buying power. Futures use a day-trade margin per contract (the
+// listed margin at 4x; more at lower leverage settings, less at higher) and are marked to market at their
+// contract multiplier (ES is $50 a point). When equity falls below maintenance the account is liquidated
+// at market, largest position first.
 (function () {
   'use strict';
   const DTA = (typeof window !== 'undefined' ? window : globalThis).DTA;
@@ -44,15 +48,28 @@
     acct(pid) { return this.accts.get(pid); }
     pos(a, sym) { return a.pos[sym] || (a.pos[sym] = { qty: 0, avg: 0, realized: 0, openT: 0 }); }
     mark(sym) { const s = this.m.syms[sym]; return s ? s.lastIdx * s.tick : 0; }
+    mult(sym) { const s = this.m.syms[sym]; return s ? s.def.mult || 1 : 1; }
+    isFut(sym) { const s = this.m.syms[sym]; return !!s && s.def.kind === 'future'; }
+    // Day-trade margin per futures contract at this match's leverage setting (4x = the listed margin).
+    marginPer(sym) { const s = this.m.syms[sym]; return s && s.def.margin ? (s.def.margin * 4) / this.o.leverage : 0; }
+    // Margin one more unit needs: a contract's margin for futures, price ÷ leverage for a share.
+    unitMargin(sym, px) { return this.isFut(sym) ? this.marginPer(sym) : px / this.o.leverage; }
     equity(a) {
       let e = a.cash;
-      for (const sym in a.pos) { const p = a.pos[sym]; if (p.qty) e += p.qty * this.mark(sym); }
+      for (const sym in a.pos) { const p = a.pos[sym]; if (p.qty) e += p.qty * this.mark(sym) * this.mult(sym); }
       return e;
     }
+    // Notional exposure (futures at contract value).
     gross(a) {
       let g = 0;
-      for (const sym in a.pos) { const p = a.pos[sym]; if (p.qty) g += Math.abs(p.qty) * this.mark(sym); }
+      for (const sym in a.pos) { const p = a.pos[sym]; if (p.qty) g += Math.abs(p.qty) * this.mark(sym) * this.mult(sym); }
       return g;
+    }
+    // Margin the open positions tie up.
+    posMargin(a) {
+      let m = 0;
+      for (const sym in a.pos) { const p = a.pos[sym]; if (p.qty) m += Math.abs(p.qty) * this.unitMargin(sym, this.mark(sym)); }
+      return m;
     }
     maint(a) {
       let m = 0;
@@ -60,11 +77,12 @@
         const p = a.pos[sym];
         if (!p.qty) continue;
         const def = this.m.syms[sym].def;
-        m += Math.abs(p.qty) * this.mark(sym) * (def.htb ? MAINT_MARGIN_HTB : MAINT_MARGIN);
+        if (def.kind === 'future') m += Math.abs(p.qty) * this.marginPer(sym) * 0.75;
+        else m += Math.abs(p.qty) * this.mark(sym) * (def.htb ? MAINT_MARGIN_HTB : MAINT_MARGIN);
       }
       return m;
     }
-    // Exposure that working orders would add if they all filled (each on its own).
+    // Margin that working orders would add if they all filled (each on its own).
     pendingIncrease(a, exceptId) {
       let inc = 0;
       for (const o of this.orders.values()) {
@@ -75,11 +93,24 @@
         const left = o.qty - o.filled;
         const more = Math.max(0, Math.abs(q + o.side * left) - Math.abs(q));
         const px = o.limitIdx ? o.limitIdx * this.m.syms[o.sym].tick : o.stopIdx ? o.stopIdx * this.m.syms[o.sym].tick : this.mark(o.sym);
-        inc += more * px;
+        inc += more * this.unitMargin(o.sym, px);
       }
       return inc;
     }
+    // Margin still free for new positions.
+    freeMargin(a) { return this.equity(a) - this.posMargin(a) - this.pendingIncrease(a); }
+    // Stock buying power in dollars of stock (free margin × leverage).
     buyingPower(a) { return Math.max(0, this.equity(a)) * this.o.leverage; }
+    // Largest quantity a player could add in a symbol right now (whole contracts, or shares).
+    capacity(a, sym, px) {
+      const u = this.unitMargin(sym, px || this.mark(sym));
+      return u > 0 ? Math.max(0, Math.floor(this.freeMargin(a) / u)) : 0;
+    }
+    maxQty(sym) {
+      if (!this.o.maxShares) return 0;
+      if (!this.isFut(sym)) return this.o.maxShares;
+      return Math.max(1, Math.round(this.o.maxShares / 500));
+    }
 
     emit(ev) { this.events.push(ev); }
     reject(pid, msg, o) {
@@ -100,7 +131,7 @@
       if (!side) return this.reject(pid, 'Pick buy or sell');
       const type = TYPES.includes(req.type) ? req.type : 'MKT';
       const qty = Math.floor(+req.qty);
-      if (!(qty >= 1 && qty <= 5e7)) return this.reject(pid, 'Quantity must be a whole number of shares');
+      if (!(qty >= 1 && qty <= 5e7)) return this.reject(pid, 'Quantity must be a whole number of ' + (sim.def.kind === 'future' ? 'contracts' : 'shares'));
       const tick = sim.tick;
       const toIdx = (v) => (isFinite(+v) && +v > 0 ? Math.round(+v / tick) : null);
       const limitIdx = type === 'LMT' || type === 'STPLMT' ? toIdx(req.px) : null;
@@ -130,6 +161,8 @@
       if (!reduceOnly) {
         const risk = this.checkRisk(a, sim, side, qty, refPx);
         if (risk) return this.reject(pid, risk);
+        const ssr = this.checkSsr(a, sim, side, qty, type, limitIdx, t);
+        if (ssr) return this.reject(pid, ssr);
       }
       // Self-cross: a limit may not trade through your own resting order on the other side.
       if (limitIdx) {
@@ -182,15 +215,36 @@
       const nq = q + side * qty;
       const more = Math.max(0, Math.abs(nq) - Math.abs(q));
       if (!more) return null;
-      if (this.o.maxShares && Math.abs(nq) > this.o.maxShares) return 'Position limit is ' + fmtQty(this.o.maxShares) + ' shares in this mode';
-      if (nq < 0 && Math.abs(nq) > Math.abs(Math.min(0, q))) {
+      const fut = sim.def.kind === 'future';
+      const unit = fut ? 'contracts' : 'shares';
+      const cap = this.maxQty(sim.sym);
+      if (cap && Math.abs(nq) > cap) return 'Position limit is ' + fmtQty(cap) + ' ' + unit + ' in this mode';
+      if (!fut && nq < 0 && Math.abs(nq) > Math.abs(Math.min(0, q))) {
         const def = sim.def;
         if (def.htb && sim.noLocate) return 'No shares available to borrow in ' + sim.sym + ' right now';
         if (def.htb && def.maxShort && Math.abs(nq) > def.maxShort) return 'Locate limit: at most ' + fmtQty(def.maxShort) + ' ' + sim.sym + ' shares short';
       }
-      const need = this.gross(a) + this.pendingIncrease(a) + more * px;
-      const bp = this.buyingPower(a);
-      if (need > bp + 0.01) return 'Not enough buying power: this needs ' + fmtMoney(more * px, 0) + ', you have ' + fmtMoney(Math.max(0, bp - this.gross(a) - this.pendingIncrease(a)), 0) + ' left';
+      const um = this.unitMargin(sim.sym, px);
+      const free = this.freeMargin(a);
+      if (more * um > free + 0.01) {
+        if (fut) {
+          const can = Math.max(0, Math.floor(free / um));
+          return 'Not enough margin: ' + more + ' ' + sim.sym + ' needs ' + fmtMoney(more * um, 0) + ' (' + fmtMoney(um, 0) + ' a contract). You can add ' + can + ' more';
+        }
+        return 'Not enough buying power: this needs ' + fmtMoney(more * px, 0) + ', you have ' + fmtMoney(Math.max(0, free * this.o.leverage), 0) + ' left';
+      }
+      return null;
+    }
+
+    // Short sale restriction (Rule 201): once a stock is down 10% on the day, new shorts can't hit the bid.
+    checkSsr(a, sim, side, qty, type, limitIdx, t) {
+      if (!sim.ssr || side > 0 || sim.def.kind === 'future') return null;
+      const p = a.pos[sim.sym];
+      const q = p ? p.qty : 0;
+      if (q - qty >= 0) return null;
+      if (type !== 'LMT') return sim.sym + ' is under the short sale restriction: short with a limit order above the bid';
+      const bid = sim.bestBid(t);
+      if (bid !== null && limitIdx <= bid) return sim.sym + ' is under the short sale restriction: your short limit must be above the bid';
       return null;
     }
 
@@ -227,6 +281,13 @@
     // ---------- fills ----------
     commissionFor(o, qty, px) {
       if (!this.o.commissions) return 0;
+      const def = this.m.syms[o.sym].def;
+      if (def.kind === 'future') {
+        // Futures: a flat amount per contract per side (commission plus exchange and regulatory fees).
+        const c = Math.round(qty * (def.comm || 2.25) * 100) / 100;
+        o.commBilled += c;
+        return c;
+      }
       const q = o.filled, n = o.notional;
       const target = clamp(q * COMMISSION.perShare, COMMISSION.min, Math.max(COMMISSION.min, n * COMMISSION.maxPct));
       const c = Math.max(0, target - o.commBilled);
@@ -239,6 +300,7 @@
       const a = this.accts.get(o.pid);
       const sim = this.m.syms[o.sym];
       const px = Math.round(idx * sim.tick * 10000) / 10000;
+      const mult = sim.def.mult || 1;
       const p = this.pos(a, o.sym);
       // Reduce-only children never flip the position.
       if (o.reduceOnly) {
@@ -250,7 +312,7 @@
       let realized = 0;
       if (before !== 0 && Math.sign(before) !== o.side) {
         const closeQty = Math.min(qty, Math.abs(before));
-        realized = closeQty * (px - p.avg) * Math.sign(before);
+        realized = closeQty * (px - p.avg) * Math.sign(before) * mult;
       }
       const after = before + o.side * qty;
       if (before === 0 || Math.sign(after) !== Math.sign(before)) {
@@ -263,7 +325,7 @@
       if (after === 0) p.avg = 0;
       p.realized += realized;
       a.realized += realized;
-      a.cash -= o.side * qty * px;
+      a.cash -= o.side * qty * px * mult;
       // Maker and auction fills were already counted on the order by the market as it matched them.
       if (liq === 'T' || liq === 'X' || liq === 'C') o.filled += qty;
       o.notional += qty * px;
@@ -272,13 +334,13 @@
       a.cash -= comm; a.comm += comm;
       let fee = 0;
       const openedShort = Math.max(0, -after - Math.max(0, -before));
-      if (openedShort > 0 && sim.def.htb && sim.def.borrowFee) {
+      if (openedShort > 0 && sim.def.htb && sim.def.borrowFee && sim.def.kind !== 'future') {
         fee = openedShort * sim.def.borrowFee;
         a.cash -= fee; a.fees += fee;
       }
       const g = this.gross(a);
       if (g > a.maxGross) a.maxGross = g;
-      const fill = { id: ++this.fillSeq, t, sym: o.sym, side: o.side, qty, px, liq, oid: o.id, comm, fee, cp: cp || null, tag: o.tag, realized, posAfter: after };
+      const fill = { id: ++this.fillSeq, t, sym: o.sym, side: o.side, qty, px, liq, oid: o.id, comm, fee, cp: cp || null, tag: o.tag, realized, posAfter: after, mult };
       a.fills.push(fill);
       a.dirty = true;
       this.emit({ k: 'fill', pid: o.pid, fill });
@@ -479,7 +541,7 @@
           a.marginCalls++;
           this.emit({ k: 'margin', pid: a.pid, eq, maint: mm });
           this.cancelAll(a.pid);
-          const syms = Object.keys(a.pos).filter((s) => a.pos[s].qty).sort((x, y) => Math.abs(a.pos[y].qty) * this.mark(y) - Math.abs(a.pos[x].qty) * this.mark(x));
+          const syms = Object.keys(a.pos).filter((s) => a.pos[s].qty).sort((x, y) => Math.abs(a.pos[y].qty) * this.mark(y) * this.mult(y) - Math.abs(a.pos[x].qty) * this.mark(x) * this.mult(x));
           for (const s of syms) {
             this.flatten(a.pid, s, 'X');
             if (this.equity(a) >= this.maint(a) * 1.2) break;
@@ -556,9 +618,12 @@
         const px = (idx) => Math.round(idx * tick * 10000) / 10000;
         ord.push([o.id, o.sym, o.side, o.type, o.qty, o.filled, o.limitIdx ? px(o.limitIdx) : null, o.stopIdx ? px(o.stopIdx) : null, o.status, o.tag, o.parent, o.trail ? px(o.trail) : 0]);
       }
+      const pm = this.pendingIncrease(a);
+      const mu = this.posMargin(a) + pm;
       return {
-        cash: round2(a.cash), eq: round2(eq), start: a.start, bp: round2(Math.max(0, eq) * this.o.leverage), used: round2(g + this.pendingIncrease(a)),
+        cash: round2(a.cash), eq: round2(eq), start: a.start, bp: round2(Math.max(0, eq) * this.o.leverage), used: round2((this.posMargin(a) + pm) * this.o.leverage),
         gross: round2(g), maint: round2(this.maint(a)), realized: round2(a.realized), comm: round2(a.comm), fees: round2(a.fees),
+        mu: round2(mu), free: round2(eq - mu),
         busted: a.busted, frozen: a.frozen, mc: a.marginCalls, lev: this.o.leverage, pos, ord
       };
     }
@@ -590,7 +655,7 @@
           tr.close = f.t;
           const entry = tr.entryNotional / tr.entryQty, exit = tr.exitNotional / tr.exitQty;
           tr.entry = entry; tr.exit = exit; tr.qty = tr.maxQty;
-          tr.gross = (exit - entry) * tr.exitQty * tr.side;
+          tr.gross = (exit - entry) * tr.exitQty * tr.side * (f.mult || 1);
           tr.pnl = tr.gross - tr.comm - tr.fees;
           trips.push(tr);
           s.trip = null;
